@@ -1,0 +1,115 @@
+name: CD ANDROID DAST
+# - OWASP ZAP (M3/M5) DAST Scan
+
+on:
+  # 1. Gatilho Manual (Para testes pontuais)
+  workflow_dispatch:
+    inputs:
+      target_url:
+        description: 'URL de destino para o ZAP Scan'
+        required: true
+        default: 'https://jsonplaceholder.typicode.com'
+      auth_token:
+        description: 'Token de Autenticação/Sessão Válido para testes M3 (Ex: Bearer Token)'
+        required: false
+      scan_type:
+        description: 'Tipo de Scan ZAP'
+        required: true
+        default: 'full'
+        type: choice
+        options:
+          - full
+          - baseline
+
+  # 2. Gatilho Automatizado: Roda após o workflow de deploy ser concluído com sucesso
+  workflow_run:
+    workflows: ["BUILD ANDROID RELEASE"] 
+    types: 
+      - completed
+      
+permissions:
+  contents: read
+  security-events: write
+  actions: read 
+  issues: write # Permite que o ZAP Action crie Issues (Problemas) no GitHub
+
+jobs:
+  zap_dast_scan:
+    runs-on: ubuntu-latest
+    
+
+    # ⏱️ Tempo limite total para o job
+    timeout-minutes: 20
+    
+    # Executa apenas se o workflow anterior foi concluído com sucesso ou se for execução manual
+    if: |      
+      github.event_name == 'workflow_dispatch' || 
+      (github.event_name == 'workflow_run' && 
+       github.event.workflow_run.conclusion == 'success' &&      
+       contains(github.event.workflow_run.head_branch, 'release'))
+
+    steps:
+      - name: ⬇️ Checkout do Código
+        uses: actions/checkout@v4
+        
+      - name: ⚙️ Definir Parâmetros (Lógica Condicional e Foco no Teste)
+        id: params
+        run: |
+          echo "🚧 Iniciando checkout do código..."
+          # Define a URL e Token com base no gatilho
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            TARGET_URL="${{ github.event.inputs.target_url }}"
+            AUTH_TOKEN="${{ github.event.inputs.auth_token }}"
+          else
+            TARGET_URL="https://api.seubanco-staging.com"
+            AUTH_TOKEN="${{ secrets.STAGING_AUTH_TOKEN }}"
+          fi
+          
+          echo "target_url=$TARGET_URL" >> $GITHUB_OUTPUT
+          echo "auth_token=$AUTH_TOKEN" >> $GITHUB_OUTPUT
+          
+      - name: 💥 Rodar ZAP Full Scan (Foco M3/M5 com Token)
+        uses: zaproxy/action-full-scan@v0.12.0
+        with:
+          target: ${{ steps.params.outputs.target_url }}
+          
+          # 🔒 Configurações avançadas do ZAP
+          # - M3 (Autorização): usa -z para adicionar cabeçalho Authorization dinamicamente
+          # - T (Timeout): define tempo máximo do scan (20 minutos)
+          cmd_options: >-
+            -z "-config replacer.full_list\(0\).description=auth_header
+                -config replacer.full_list\(0\).enabled=true
+                -config replacer.full_list\(0\).matchtype=REQ_HEADER
+                -config replacer.full_list\(0\).matchstr=Authorization
+                -config replacer.full_list\(0\).regex=false
+                -config replacer.full_list\(0\).replacement=Bearer ${{ steps.params.outputs.auth_token }}"
+            -T 20
+          
+          # Mantém compatibilidade com versões futuras (não remove o token inline)
+          # cmd_options: >-
+          #   -H "Authorization: Bearer ${{ steps.params.outputs.auth_token }}"
+
+        # ✅ NOVO BLOCO: variáveis oficiais do ZAP Action (garantia de compatibilidade futura)
+        env:
+          ZAP_AUTH_HEADER: "Authorization"
+          ZAP_AUTH_HEADER_VALUE: "Bearer ${{ steps.params.outputs.auth_token }}"
+          ZAP_AUTH_HEADER_SITE: "${{ steps.params.outputs.target_url }}"
+
+      # --- RESULTADOS: Upload para Dashboard (SARIF) ---
+      # - name: ⬆️ Upload de Resultados SARIF para GitHub Security
+      #   uses: github/codeql-action/upload-sarif@v3
+      #   with:
+      #     sarif_file: 'zap_full_scan_report.sarif'
+      #   if: always()
+
+      # --- RESULTADOS: Upload para Download (Artefatos) ---
+      - name: 📦 Upload de Artefatos ZAP para Download
+        uses: actions/upload-artifact@v4
+        with:
+          name: ZAP-DAST-Reports-${{ github.sha }}
+          path: |
+            ./zap_full_scan_report.html
+            ./zap_full_scan_report.sarif
+            ./zap_full_scan_report.xml
+          retention-days: 3
+        if: always()

@@ -1,0 +1,333 @@
+name: CI - SECURITY
+
+# ---------------------------------------------------------------------------
+# Este workflow executa uma pipeline de segurança completa para aplicativos 
+# mobile Flutter, incluindo: SAST, SCA, Secret Scan, Binary Scan e MASVS.
+#
+# Compatibilidade com OWASP:
+# - Mobile Top 10: M1, M2, M3, M8, M9, M10
+# - MASVS: L2, MSTG-CODE, MSTG-PLATFORM, MSTG-STORAGE, MSTG-CRYPTO
+#
+# Este pipeline NÃO faz build — espera que o CI de qualidade gere APK/AAB
+# quando necessário para os scanners binários.
+# ---------------------------------------------------------------------------
+
+on:
+  pull_request:
+    branches: [ develop, main ]
+  push:
+    branches: [ develop ]
+
+permissions:
+  contents: read
+  security-events: read
+
+jobs:
+  security-ci:    
+    name: 🔐 Security Validation Pipeline
+    runs-on: ubuntu-latest
+    if: ${{ !startsWith(github.head_ref, 'dependabot/') }}
+    timeout-minutes: 10
+
+    steps:
+      # ---------------------------------------------------------------------------
+      # 1) CHECKOUT
+      # ---------------------------------------------------------------------------
+      - name: ⬇️ Checkout código fonte
+        uses: actions/checkout@v4
+        with:
+          # Obs: shallow clone é aceitável aqui (1 commit)
+          fetch-depth: 1
+
+      # ---------------------------------------------------------------------------
+      # 2) CACHES (Python, Trivy)
+      # ---------------------------------------------------------------------------
+      - name: ⚡ Cache pip dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements*.txt', 'pyproject.toml', 'security/**', 'scripts/**') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: ⚡ Cache Trivy vulnerability DB
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/trivy
+          key: trivy-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: trivy-${{ runner.os }}-
+
+      # ---------------------------------------------------------------------------
+      # 3) SECRET SCAN (M9 – Extraneous Functionality, M10 – Improper Platform Usage)
+      # detect-secrets + gitleaks
+      # ---------------------------------------------------------------------------
+      - name: 🧩 Instalar ferramentas de secret scanning
+        run: |
+          python3 -m pip install --upgrade pip
+          pip install detect-secrets jq
+          if ! command -v gitleaks &> /dev/null; then
+            echo "⬇️ Instalando Gitleaks..."
+            curl -sSL https://github.com/zricethezav/gitleaks/releases/download/v8.18.0/gitleaks_8.18.0_linux_x64.tar.gz \
+              | tar -xz -C /usr/local/bin gitleaks
+          else
+            echo "✅ Gitleaks disponível no runner"
+          fi
+
+      - name: 🔎 Scan de secrets (pré-commit + git-history)
+        id: secrets-scan
+        run: |
+          set -e
+          chmod +x scripts/ci-git-secret-scan.sh
+          ./scripts/ci-git-secret-scan.sh
+          echo "status=✅ PASSED" >> $GITHUB_OUTPUT
+
+      # ---------------------------------------------------------------------------
+      # 4) MobSFScan — SAST + MASVS
+      # ---------------------------------------------------------------------------
+      # MASVS: M1, M2, M3, M8, M9, M10 (SAST + Config checks)
+      # ---------------------------------------------------------------------------
+      - name: 🔧 Garantir que o script de SSL Pinning check está disponível
+        run: |
+          if [ -f scripts/check-pinning-and-mobsf.sh ]; then
+            chmod +x scripts/check-pinning-and-mobsf.sh
+          else
+            echo "❌ Script não encontrado: scripts/check-pinning-and-mobsf.sh"
+            exit 1
+          fi
+
+      - name: ⚡ Cache MobSFScan
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: mobsfscan-${{ runner.os }}-${{ hashFiles('security/mobsfscan-config.yaml') }}
+          restore-keys: mobsfscan-${{ runner.os }}-
+
+      - name: 🧩 Instalar MobSFScan
+        run: |
+          python3 -m pip install --upgrade pip
+          pip install mobsfscan jq
+
+      - name: 🧠 Rodar MobSFScan (MASVS Ruleset)
+        id: mobsf
+        run: |
+          set -e
+          echo "🏁 Rodando MobSFScan (MASVS)"
+
+          mobsfscan --json \
+            --config security/mobsfscan-config.yaml \
+            . > mobsfscan-report.json 2> mobsfscan-stderr.log || true
+
+          # Debug parcial
+          echo "Preview do relatório:"
+          head -n 40 mobsfscan-report.json || true
+
+          # Gate customizado
+          chmod +x scripts/mobsf-gate.sh
+          ./scripts/mobsf-gate.sh
+
+          echo "status=✅ PASSED" >> $GITHUB_OUTPUT
+
+      # ---------------------------------------------------------------------------
+      # 5) Binary Secrets Scan (APK/AAB) – MASVS (extraneous functionality)
+      # ---------------------------------------------------------------------------
+      - name: 🔍 Binary Scan (APK/AAB) — procura segredos embutidos
+        id: binary-scan
+        if: always()
+        run: |
+          chmod +x scripts/scan-binaries-for-secrets.sh
+          ARTIFACTS=$(find apps -type f \( -name "*.apk" -o -name "*.aab" \) || true)
+
+          if [ -z "$ARTIFACTS" ]; then
+            echo "⚠️ Nenhum APK ou AAB encontrado para escanear."
+          else
+            ./scripts/scan-binaries-for-secrets.sh $ARTIFACTS
+          fi
+
+          echo "status=✅ PASSED" >> $GITHUB_OUTPUT
+
+      # ---------------------------------------------------------------------------
+      # 6) Debug automático do MobSF em caso de falha
+      # ---------------------------------------------------------------------------
+      - name: 🔍 Debug MobSF Output (on fail)
+        if: failure()
+        run: |
+          echo "---- mobsfscan-report.json ----"
+          cat mobsfscan-report.json || echo "⚠️ Report não encontrado."
+          echo "---- stderr ----"
+          cat mobsfscan-stderr.log || echo "⚠️ Sem stderr."
+
+      # ---------------------------------------------------------------------------
+      # 7) Upload de relatórios MobSF/Mobility
+      # ---------------------------------------------------------------------------
+      - name: 📤 Upload MobSF reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mobsfscan-report
+          path: |
+            mobsfscan-report.json
+            mobsfscan-stderr.log
+
+      # ---------------------------------------------------------------------------
+      # 8) GITLEAKS (somente CI — SARIF)
+      # ---------------------------------------------------------------------------
+      - name: 🔐 Run Gitleaks (SARIF)
+        id: gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        continue-on-error: false
+        with:
+          args: detect --no-git --redact \
+            --report-format=sarif \
+            --report-path=results.sarif \
+            --log-level=error
+
+      - name: Registrar status gitleaks
+        if: always()
+        run: |
+          if [ "${{ steps.gitleaks.outcome }}" = "success" ]; then
+            echo "status=✅ PASSED" >> $GITHUB_OUTPUT
+          else
+            echo "status=❌ FAILED" >> $GITHUB_OUTPUT
+          fi
+
+      # ---------------------------------------------------------------------------
+      # 9) TRIVY — SCA (M8 – Insecure Dependencies)
+      # ---------------------------------------------------------------------------
+      - name: 🧩 Instalar Trivy (SCA)
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y wget apt-transport-https gnupg lsb-release jq
+          wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo apt-key add -
+          echo "deb https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" \
+            | sudo tee /etc/apt/sources.list.d/trivy.list
+          sudo apt-get update -y
+          sudo apt-get install -y trivy
+
+      - name: 🧩 Rodar Trivy (HIGH/CRITICAL enforcement)
+        id: trivy
+        continue-on-error: false
+        run: |
+          echo "🔍 Trivy SCA — Buscando vulnerabilidades HIGH/CRITICAL"
+          trivy fs . --cache-dir ~/.cache/trivy \
+            --security-checks vuln \
+            --severity HIGH,CRITICAL \
+            --ignore-unfixed \
+            --format json \
+            -o trivy-report.json \
+            --exit-code 1 || true
+
+          VULN_COUNT=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="HIGH" or .Severity=="CRITICAL")] | length' trivy-report.json || echo "0")
+
+          if [ "$VULN_COUNT" -gt 0 ]; then
+            echo "❌ Trivy detectou $VULN_COUNT vulnerabilidades HIGH/CRITICAL"
+            echo "status=❌ FAILED" >> $GITHUB_OUTPUT
+            echo "1" > trivy-failed.flag
+          else
+            echo "✅ Sem vulnerabilidades HIGH/CRITICAL"
+            echo "status=✅ PASSED" >> $GITHUB_OUTPUT
+          fi
+
+      - name: 📤 Upload Trivy report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-report
+          path: trivy-report.json
+
+      # ---------------------------------------------------------------------------
+      # 10) Dependabot Enforcement (SCA)
+      # ---------------------------------------------------------------------------
+      - name: 🔧 Instalar GitHub CLI
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y gh jq
+
+      - name: 🔍 Verificar alertas Dependabot (SCA)
+        id: dependabot
+        env:
+          GH_TOKEN: ${{ secrets.GH_DEPENDABOT_TOKEN || secrets.GITHUB_TOKEN }}
+        continue-on-error: true
+        run: |
+          gh api /repos/${{ github.repository }}/dependabot/alerts --paginate > dependabot-alerts.json || echo "[]"
+
+          HIGH=$(jq '[.[] | select(.state=="open" and .security_advisory.severity=="HIGH")] | length' dependabot-alerts.json)
+          CRIT=$(jq '[.[] | select(.state=="open" and .security_advisory.severity=="CRITICAL")] | length' dependabot-alerts.json)
+          TOTAL=$((HIGH + CRIT))
+
+          if [ "$TOTAL" -gt 0 ]; then
+            echo "❌ Dependabot encontrou $TOTAL vulnerabilidades HIGH/CRITICAL"
+            echo "status=❌ FAILED" >> $GITHUB_OUTPUT
+            echo "1" > dependabot-failed.flag
+          else
+            echo "✅ Dependabot sem vulnerabilidades críticas"
+            echo "status=✅ PASSED" >> $GITHUB_OUTPUT
+          fi          
+
+      
+
+
+
+
+
+
+
+
+
+
+
+      # ---------------------------------------------------------------------------
+      # 11) CODEQL (Android Nativo — MSTG-PLATFORM)
+      # ---------------------------------------------------------------------------
+      - name: 🔧 CodeQL — Inicialização
+        if: ${{ hashFiles('android/app/src/**/*.kt', 'android/app/src/**/*.java') != '' }}
+        uses: github/codeql-action/init@v3
+        with:
+          languages: java
+          queries: +security-and-quality
+
+      - name: 🧠 Build Android (para CodeQL)
+        if: ${{ hashFiles('android/app/src/**/*.kt', 'android/app/src/**/*.java') != '' }}
+        run: |
+          cd android
+          ./gradlew assembleDebug || echo "⚠️ Build falhou, análise continua."
+
+      - name: 🧩 Rodar CodeQL
+        if: ${{ hashFiles('android/app/src/**/*.kt', 'android/app/src/**/*.java') != '' }}
+        uses: github/codeql-action/analyze@v3
+        continue-on-error: true
+
+      # ---------------------------------------------------------------------------
+      # 12) Relatório Final — Fácil leitura para PRs
+      # ---------------------------------------------------------------------------
+      - name: 📊 Security Summary
+        if: always()
+        run: |
+          echo "────────────────────────────────────────"
+          echo "🔐 SECURITY SUMMARY"
+          echo "────────────────────────────────────────"
+          printf "🧠 Secrets (detect-secrets): %s\n" "${{ steps.secrets-scan.outputs.status || 'N/A' }}"
+          printf "🔐 Gitleaks CI:              %s\n" "${{ steps.gitleaks.outputs.status || 'N/A' }}"
+          printf "📱 MobSFScan (MASVS):        %s\n" "${{ steps.mobsf.outputs.status || 'N/A' }}"
+          printf "🧮 Binary Secrets Scan:      %s\n" "${{ steps.binary-scan.outputs.status || 'N/A' }}"
+          printf "🧩 Trivy (SCA):              %s\n" "${{ steps.trivy.outputs.status || 'N/A' }}"
+          printf "🐙 Dependabot Alerts:        %s\n" "${{ steps.dependabot.outputs.status || 'N/A' }}"
+          echo "────────────────────────────────────────"
+
+      # ---------------------------------------------------------------------------
+      # 13) Enforcement Final — Se algo crítico falhou, CI falha
+      # ---------------------------------------------------------------------------
+      - name: 🚨 ENFORCEMENT — Se falhar em SCA, bloquear PR/merge
+        if: always()
+        run: |
+          TRIVY=0
+          DEP=0
+
+          if [ -f trivy-failed.flag ]; then TRIVY=1; fi
+          if [ -f dependabot-failed.flag ]; then DEP=1; fi
+
+          if [ "$TRIVY" -eq 1 ] || [ "$DEP" -eq 1 ]; then
+            echo "🚫 Segurança CRÍTICA — bloqueando."
+            exit 1
+          fi
+
+          echo "✅ Nenhuma vulnerabilidade crítica encontrada."

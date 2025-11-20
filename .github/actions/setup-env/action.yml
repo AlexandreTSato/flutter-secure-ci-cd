@@ -1,0 +1,27 @@
+name: Setup Flutter + Melos Environment
+description: Configura Flutter, cache e Melos
+runs:
+  using: "composite"
+  steps:
+    - uses: subosito/flutter-action@v2
+      with:
+        flutter-version: '3.38.2'
+        cache: true
+
+    - name: Instalar Melos
+      run: dart pub global activate melos
+      shell: bash
+
+    - name: Adicionar Melos ao PATH
+      run: echo "$HOME/.pub-cache/bin" >> $GITHUB_PATH
+      shell: bash
+
+    - name: Cache Dependencies
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.pub-cache
+          .dart_tool/
+        key: ${{ runner.os }}-pub-${{ hashFiles('**/pubspec.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-pub-

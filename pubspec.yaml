@@ -1,0 +1,14 @@
+name: flutterbank
+publish_to: none
+environment:
+  sdk: ^3.9.2
+dev_dependencies:
+  melos: ^6.0.0
+melos:
+  command:
+    bootstrap:
+      runPubGetInParallel: true
+
+# importante:  
+# O arquivo pubspec.lock correspondente também deve ser commitado. Certifique-se de excluí-lo do arquivo .gitignore.
+

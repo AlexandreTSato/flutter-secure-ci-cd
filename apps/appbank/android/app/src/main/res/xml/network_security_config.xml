@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <base-config>
+        <cleartextTrafficPermitted>false</cleartextTrafficPermitted>
+        <trust-anchors>
+            <certificates src="system" /> 
+        </trust-anchors>
+    </base-config>
+
+    <domain-config>
+         <cleartextTrafficPermitted>true</cleartextTrafficPermitted>
+         <domain includeSubdomains="true">api.teste.com.br</domain> 
+        <pin-set expiration="2028-12-31"> 
+            <pin digest="SHA-256">xEWOAPcJ/Fe7amehvVTA8J8+Mph2CuQFx1ytHx1XX8A=</pin>
+            <!-- <pin digest="SHA-256">xEWOAPcJ/Fe7amehvVTA8J8+Mph2CuQFx1ytHx1XX8A=</pin>  -->
+        </pin-set>
+    </domain-config>
+
+</network-security-config>

@@ -1,0 +1,25 @@
+rules:
+  - id: MASVS-NETWORK-1
+    pattern: "SSL Pinning not implemented"
+    severity: CRITICAL
+    description: "App must enforce SSL Pinning (MASVS-NETWORK-1)"
+
+  - id: MASVS-STORAGE-2
+    pattern: "Insecure data storage"
+    severity: HIGH
+    description: "Sensitive data must not be stored unencrypted (MASVS-STORAGE-2)"
+
+  - id: MASVS-PLATFORM-3
+    pattern: "Debuggable application"
+    severity: CRITICAL
+    description: "App must not be debuggable (MASVS-PLATFORM-3)"
+
+  - id: MASVS-CRYPTO-1
+    pattern: "Weak cryptography algorithm"
+    severity: HIGH
+    description: "Use of insecure or deprecated cryptography (MASVS-CRYPTO-1)"
+
+  - id: MASVS-PLATFORM-1
+    pattern: "Backup allowed"
+    severity: HIGH
+    description: "android:allowBackup should be false (MASVS-PLATFORM-1)"

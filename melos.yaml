@@ -1,0 +1,71 @@
+name: flutterbank
+packages:
+  - "apps/**"
+  - "packages/**"
+
+scripts:
+
+  # Gera todos os arquivos Freezed/Json etc.
+  build_runner:
+    description: "Executa build_runner apenas nos pacotes com código gerado"
+    run: melos exec --scope="pix" -- "dart run build_runner build --delete-conflicting-outputs"
+    #run: melos exec --scope="pix|ted|shared" -- "dart run build_runner build --delete-conflicting-outputs"
+
+
+  # -------------------
+  # 📐 Formatação
+  # -------------------
+  
+  format:check:
+    description: "Verifica se o código Dart está formatado corretamente"
+    run: melos exec -- "dart format --set-exit-if-changed lib test"
+  
+  # format:fix:
+  #   description: "Aplica formatação automaticamente"
+  #   run: melos exec -- "dart format lib test"
+
+  
+  # -------------------
+  # 🧐 Análise estática
+  # -------------------
+  analyze:
+    description: "Executa análise estática em todos os pacotes"
+    run: melos exec -- "flutter analyze --no-fatal-infos"
+
+  # -------------------
+  # 🧪 Testes unitários
+  # -------------------
+  test:
+    description: "Executa todos os testes unitários"
+    run: melos exec -- "flutter test --no-pub --coverage"     
+
+  # -------------------
+  # 🧰 Limpeza e bootstrap
+  # -------------------
+  clean:
+    run: melos exec -- "flutter clean"
+  bootstrap:
+    run: melos bootstrap
+
+  # -----------------------------
+  # ✅ Novo script — Build do app
+  # -----------------------------    
+  build_app:
+    description: "Compila o app principal em modo debug (APK)"        
+    exec:    
+      #dir: apps/appbank
+    #run: flutter build apk --debug --no-tree-shake-icons
+    run: |            
+        (cd apps/appbank && flutter build apk --debug --no-tree-shake-icons --target=lib/main.dart)
+      
+      # -----------------------------
+  # ✅ Novo script — Build do app
+  # -----------------------------    
+  build_app_release:
+    description: "Compila o app principal em modo release (AAB)"        
+    exec:          
+    run: |            
+        (cd apps/appbank && flutter build appbundle --release --no-tree-shake-icons --target=lib/main.dart)
+
+
+ 

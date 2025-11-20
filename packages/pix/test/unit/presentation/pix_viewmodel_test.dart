@@ -1,0 +1,212 @@
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:mocktail/mocktail.dart';
+import 'package:pix/core/results/result.dart';
+import 'package:pix/envio/domain/models/chave_pix.dart';
+import 'package:pix/envio/domain/usercases/submit_amount.dart';
+import 'package:pix/envio/domain/usercases/submit_cpf.dart';
+import 'package:pix/envio/domain/value_objects/amount.dart';
+import 'package:pix/envio/domain/value_objects/cpf.dart';
+import 'package:pix/envio/presentation/commands/submit_amout_command.dart';
+import 'package:pix/envio/presentation/commands/submit_cpf_command.dart';
+import 'package:pix/envio/presentation/events/ui_event.dart';
+import 'package:pix/envio/presentation/events/ui_event_notifier.dart';
+import 'package:pix/envio/presentation/state/pix_flow_state.dart';
+import 'package:pix/envio/presentation/state/pix_session_provider.dart';
+import 'package:pix/envio/presentation/viewmodels/pix_flow_view_model.dart';
+import 'package:pix/pix_providers.dart';
+
+// --------------------
+// Mocks
+// --------------------
+
+class MockSubmitCpfUseCase extends Mock implements SubmitCpfUseCase {}
+
+class MockSubmitAmountUseCase extends Mock implements SubmitAmountUseCase {}
+
+// --------------------
+// Fake Notifier real (a correção)
+// --------------------
+
+class FakeUiEventNotifier extends UiEventNotifier {
+  final List<UiEvent> capturedEvents = [];
+
+  @override
+  void addEvent(UiEvent event) {
+    capturedEvents.add(event);
+  }
+}
+
+// --------------------
+// Fakes para Value Objects
+// --------------------
+
+class FakeCpf extends Fake implements Cpf {}
+
+class FakeAmmout extends Fake implements Amount {}
+
+void main() {
+  late MockSubmitCpfUseCase mockCpf;
+  late MockSubmitAmountUseCase mockAmount;
+  late FakeUiEventNotifier fakeUiEventNotifier;
+  late ProviderContainer container;
+  late PixFlowViewModel viewModel;
+
+  setUpAll(() {
+    registerFallbackValue(FakeCpf());
+    registerFallbackValue(FakeAmmout());
+    registerFallbackValue(const ShowSnackbar(message: '', isError: false));
+  });
+
+  setUp(() {
+    mockCpf = MockSubmitCpfUseCase();
+    mockAmount = MockSubmitAmountUseCase();
+    fakeUiEventNotifier = FakeUiEventNotifier();
+
+    container = ProviderContainer(
+      overrides: [
+        submitCpfUseCaseProvider.overrideWithValue(mockCpf),
+        submitAmountUseCaseProvider.overrideWithValue(mockAmount),
+
+        // ⭐ A correção importante:
+        uiEventNotifierProvider.overrideWith(() => fakeUiEventNotifier),
+      ],
+    );
+
+    viewModel = container.read(pixFlowViewModelProvider.notifier);
+  });
+
+  tearDown(() => container.dispose());
+
+  // -----------------------------------------------------------
+  // TESTES
+  // -----------------------------------------------------------
+
+  // test('✅ CPF válido muda estado para success após loading', () async {
+  //   final chavePix = ChavePix(id: 1, email: 'user@pix.com');
+
+  //   when(
+  //     () => mockCpf.call(any()),
+  //   ).thenAnswer((_) async => Result.success(chavePix));
+
+  //   await viewModel.handleCommand(SubmitCpfCommand('44892531090'));
+
+  //   final state = container.read(pixFlowViewModelProvider);
+
+  //   state.maybeWhen(
+  //     success: (chave) => expect(chave.email, equals('user@pix.com')),
+  //     orElse: () => fail('Estado não chegou a success'),
+  //   );
+
+  //   verify(() => mockCpf.call(any())).called(1);
+  // });
+
+  test('✅ Sucesso no CPF deve popular o PixSessionProvider', () async {
+    // Arrange
+    final chavePix = ChavePix(id: 1, email: 'integration@pix.com');
+    when(
+      () => mockCpf.call(any()),
+    ).thenAnswer((_) async => Result.success(chavePix));
+
+    // Act
+    await viewModel.handleCommand(SubmitCpfCommand('44892531090'));
+
+    // Assert 1: Estado da View mudou para Success
+    final viewState = container.read(pixFlowViewModelProvider);
+    viewState.maybeWhen(
+      success: (_) {},
+      orElse: () => fail('ViewModel deveria estar em sucesso'),
+    );
+
+    // Assert 2 (O MAIS IMPORTANTE): O dado foi parar na Sessão Global?
+    final sessionState = container.read(pixSessionProvider);
+    expect(sessionState.chaveDestinatario, equals(chavePix));
+    expect(
+      sessionState.chaveDestinatario?.email,
+      equals('integration@pix.com'),
+    );
+  });
+
+  test('❌ CPF inválido emite SnackBar e não chama usecase', () async {
+    await viewModel.handleCommand(SubmitCpfCommand('123')); // inválido
+
+    final state = container.read(pixFlowViewModelProvider);
+
+    expect(state.maybeWhen(initial: () => true, orElse: () => false), isTrue);
+
+    verifyNever(() => mockCpf.call(any()));
+
+    expect(fakeUiEventNotifier.capturedEvents, hasLength(1));
+
+    final event = fakeUiEventNotifier.capturedEvents.last as ShowSnackbar;
+    expect(event.message, contains('O CPF deve conter 11 dígitos.'));
+    expect(event.isError, isTrue);
+  });
+
+  test('✅ Valor válido muda estado para success', () async {
+    final chavePix = ChavePix(id: 42, email: 'teste@pix.com');
+
+    when(
+      () => mockAmount.call(any()),
+    ).thenAnswer((_) async => Result.success(chavePix));
+
+    await viewModel.handleCommand(SubmitAmountCommand(10.0));
+
+    final state = container.read(pixFlowViewModelProvider);
+
+    state.maybeWhen(
+      success: (chave) => expect(chave.email, equals('teste@pix.com')),
+      orElse: () => fail('Estado não chegou a success'),
+    );
+
+    verify(() => mockAmount.call(any())).called(1);
+  });
+
+  test('❌ Valor inválido emite SnackBar e não chama usecase', () async {
+    await viewModel.handleCommand(SubmitAmountCommand(0.0)); // inválido
+
+    final state = container.read(pixFlowViewModelProvider);
+
+    expect(state.maybeWhen(initial: () => true, orElse: () => false), isTrue);
+
+    verifyNever(() => mockAmount.call(any()));
+
+    expect(fakeUiEventNotifier.capturedEvents.length, 1);
+
+    final event = fakeUiEventNotifier.capturedEvents.last as ShowSnackbar;
+    expect(event.message, contains('O Valor precisa ser maior que zero.'));
+    expect(event.isError, isTrue);
+  });
+
+  // ✅ TESTE CORRIGIDO: Verifica se o estado muda para error, conforme a ViewModel
+  test('💥 Falha de Use Case MUDA estado para error', () async {
+    // arrange: Define a falha do Use Case
+    final errorMessage = 'Falha de serviço';
+    when(
+      () => mockCpf.call(any()),
+    ).thenAnswer((_) async => Result.failure(Exception(errorMessage)));
+
+    // act
+    await viewModel.handleCommand(SubmitCpfCommand('44892531090'));
+
+    // assert:
+    final state = container.read(pixFlowViewModelProvider);
+
+    // 1. O estado DEVE mudar para error, conforme a ViewModel
+    state.maybeWhen(
+      error: (msg) => expect(msg, contains(errorMessage)),
+      orElse: () => fail('Estado deveria ser error, mas foi $state'),
+    );
+
+    // 2. Garante que NENHUM evento de snackbar foi emitido, pois o erro é tratado pelo estado
+    expect(fakeUiEventNotifier.capturedEvents, isEmpty);
+  });
+
+  test('♻️ Reset volta para initial', () {
+    viewModel.reset();
+    expect(
+      container.read(pixFlowViewModelProvider),
+      const PixFlowState.initial(),
+    );
+  });
+}

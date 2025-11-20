@@ -1,0 +1,30 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.7.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-added-large-files
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.4.0
+    hooks:
+      - id: detect-secrets
+        args: [--baseline=.secrets.baseline]
+  - repo: https://github.com/zricethezav/gitleaks
+    rev: v8.18.0
+    hooks:
+      - id: gitleaks
+        name: gitleaks-pre-commit
+        entry: gitleaks detect --source . --report-path gitleaks-pre-commit-report.json --redact
+        language: system
+        files: '.*'
+
+# pip install pre-commit detect-secrets
+# pre-commit install
+# # gerar baseline inicial (apenas uma vez por equipe)
+# detect-secrets scan > .secrets.baseline
+# git add .secrets.baseline
+# git commit -m "Add detect-secrets baseline"
+
+# A ideia: detect-secrets bloqueia commits com novos segredos; gitleaks no pre-commit é defesa em profundidade.

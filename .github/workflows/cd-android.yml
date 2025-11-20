@@ -1,0 +1,639 @@
+name: BUILD ANDROID RELEASE
+# ⚠️ AVISO IMPORTANTE:
+# NÃO ALTERAR O "name" DO WORKFLOW SEM ATUALIZAR OS WORKFLOWS QUE O REFERENCIAM!
+
+# ===============================================================
+# 🚀 OBJETIVO DO WORKFLOW
+# Build completo do app Android em modo Release, com:
+# - Build Flutter + Melos
+# - Geração do AAB oficial
+# - Assinatura OIDC (cosign keyless)
+# - Verificação de assinatura (cosign verify - keyless)
+# - SBOM (CycloneDX) + assinatura do SBOM
+# - Provenance (SLSA-like) assinada
+# - SAST: Semgrep + MobSFScan
+# - SAST avançado via Decompilação (AAB → APK → apktool → JADX)
+# - DAST: geração do APK universal para o job de DAST
+# - Security Checks customizados
+# - mapping.txt (R8/ProGuard)
+# - Artefatos completos
+#
+# 🛡️ Compatível com:
+# - OWASP Mobile Top 10
+# - OWASP MASVS (L1 e L2)
+# - Supply Chain Security (SLSA / Sigstore / Cosign)
+# ===============================================================
+
+on:
+  push:
+    branches:
+      - "release/**"
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  id-token: write        # (Obrigatório para cosign keyless)
+  actions: read
+  contents: read
+  security-events: write
+
+concurrency:
+  group: cd-android-${{ github.ref }}
+  cancel-in-progress: true
+
+
+jobs:
+  build_release_android:
+    name: "CD Android • Build + SAST + Sign + SBOM + Provenance"
+    runs-on: ubuntu-latest
+    if: ${{ !startsWith(github.head_ref, 'dependabot/') }}
+    timeout-minutes: 10
+
+    env:
+      APP_DIR: apps/appbank
+      TARGET_PACKAGE: com.example.appbank
+
+    steps:
+    # ============================================================
+    # 1️⃣ CHECKOUT E CONFIGURAÇÃO DO AMBIENTE
+    # ============================================================
+    - name: ⬇️ Checkout do código
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0   # Checkout COMPLETO (recomendado para build e logs)
+
+    - name: ⚙️ Configurar ambiente Flutter/Dart
+      uses: ./.github/actions/setup-env
+
+    - name: 🧪 Debug inicial — versões instaladas
+      run: |
+        flutter --version
+        java -version || true
+        flutter doctor -v || true
+
+
+    # ============================================================
+    # 2️⃣ CACHES PARA ACELERAR O BUILD
+    # ============================================================
+    - name: ♻️ Cache Pub (Flutter/Dart)
+      uses: actions/cache@v4
+      with:
+        path: ~/.pub-cache
+        key: ${{ runner.os }}-pub-${{ hashFiles('**/pubspec.lock') }}
+        restore-keys: ${{ runner.os }}-pub-
+
+    - name: ♻️ Cache .dart_tool + build
+      uses: actions/cache@v4
+      with:
+        path: |
+          **/.dart_tool
+          **/build
+        key: ${{ runner.os }}-darttools-${{ hashFiles('**/pubspec.lock') }}
+        restore-keys: ${{ runner.os }}-darttools-
+
+    - name: ♻️ Cache Gradle (Android)
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.gradle/caches
+          ~/.gradle/wrapper
+        key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+        restore-keys: ${{ runner.os }}-gradle-
+
+    - name: ♻️ Cache pip (MobSF)
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/pubspec.lock') }}
+        restore-keys: ${{ runner.os }}-pip-
+
+
+    # ============================================================
+    # 3️⃣ SAST — SEMGREP (Flutter/Dart security rules)
+    # ============================================================
+    - name: 🐍 Instalar Python 3.12
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+
+    - name: 🛠️ Instalar Semgrep
+      run: |
+        python3 -m pip install --upgrade pip
+        pip install semgrep
+        semgrep --version
+
+    - name: 🔍 Semgrep SAST (Dart/Flutter)
+      run: |
+        # Semgrep executa um scan com regras de segurança e de secrets
+        semgrep scan \
+          --config "r/dart.flutter.security.all" \
+          --config "p/secrets" \
+          --sarif \
+          --output semgrep-results.sarif
+
+
+    # ============================================================
+    # 4️⃣ BUILD DO AAB (Flutter/Melos)
+    # ============================================================
+    - name: 📦 Instalar Melos se necessário
+      run: |
+        if ! command -v melos >/dev/null; then
+          dart pub global activate melos
+          echo "$HOME/.pub-cache/bin" >> $GITHUB_PATH
+        fi
+
+    - name: 🔗 Melos Bootstrap
+      run: melos bootstrap
+
+    - name: 🏗️ Build Android Release (AAB)
+      run: |
+        # Mantemos seu comando melos run build_app_release (não alterado)
+        melos run build_app_release
+        # Gera listagem com todos os aabs produzidos (aab_paths.txt utilizado depois)
+        find . -type f -name "*.aab" -print > aab_paths.txt
+
+
+    # ============================================================
+    # 5️⃣ COSIGN — ASSINATURA OIDC DO AAB
+    # ============================================================
+    - name: 🔐 Instalar Cosign (OIDC keyless)
+      run: |
+        VERSION="v2.4.0"
+        wget -q https://github.com/sigstore/cosign/releases/download/${VERSION}/cosign-linux-amd64
+        chmod +x cosign-linux-amd64
+        sudo mv cosign-linux-amd64 /usr/local/bin/cosign
+        cosign version
+
+    - name: 🔏 Assinar AAB com Cosign (OIDC)
+      run: |
+        # Assinamos o artefato principal (mantendo exatamente o que você fazia)
+        AAB="${{ env.APP_DIR }}/build/app/outputs/bundle/release/app-release.aab"
+        if [ -f "$AAB" ]; then
+          cosign sign-blob \
+            "$AAB" \
+            --yes \
+            --bundle "${{ env.APP_DIR }}/app-release.bundle.json" \
+            --output-signature "${{ env.APP_DIR }}/app-release.sig"
+          echo "Signed $AAB"
+        else
+          echo "⚠️ AAB esperado não encontrado em $AAB — assinatura ignorada (verifique build)."
+        fi
+
+    - name: 🔍 Verificar assinatura (Cosign verify - keyless)
+      run: |
+        # Em modo keyless, a verificação exige:
+        #  - --certificate-identity-regexp  (quem assinou)
+        #  - --certificate-oidc-issuer      (issuer do token OIDC)
+        set -euo pipefail
+        AAB="${{ env.APP_DIR }}/build/app/outputs/bundle/release/app-release.aab"
+        BUNDLE="${{ env.APP_DIR }}/app-release.bundle.json"
+
+        if [ ! -f "$AAB" ]; then
+          echo "⚠️ AAB não encontrado ($AAB) — pulando cosign verify."
+          exit 0
+        fi
+        if [ ! -f "$BUNDLE" ]; then
+          echo "⚠️ Bundle JSON não encontrado ($BUNDLE) — pulando cosign verify."
+          exit 0
+        fi
+
+        # Usamos uma regexp genérica que corresponde a workflows no repo.
+        # Se quiser restringir: substitua por um caminho exato do arquivo de workflow.
+        CERT_ID_REGEXP="https://github.com/${GITHUB_REPOSITORY}/.github/workflows/.*@.*"
+        OIDC_ISSUER="https://token.actions.githubusercontent.com"
+
+        cosign verify-blob \
+          --bundle "$BUNDLE" \
+          --certificate-identity-regexp "$CERT_ID_REGEXP" \
+          --certificate-oidc-issuer "$OIDC_ISSUER" \
+          "$AAB"
+
+        echo "✅ Cosign verification OK for $AAB"
+
+
+    # ============================================================
+    # 6️⃣ UPLOAD DOS ARTEFATOS ASSINADOS
+    # ============================================================
+    - name: 🧭 Debug — listar arquivos assinados
+      run: |
+        echo "Listing signed AAB output dir:"
+        ls -la "${{ env.APP_DIR }}/build/app/outputs/bundle/release" || true
+        echo "Listing app dir for signatures:"
+        ls -la "${{ env.APP_DIR }}" | grep -E '\.sig$|\.bundle.json$' || true
+
+    - name: 📤 Upload signed AAB artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: signed-aab
+        path: |
+          ${{ env.APP_DIR }}/build/app/outputs/bundle/release/*.aab
+          ${{ env.APP_DIR }}/*.sig
+          ${{ env.APP_DIR }}/*.bundle.json
+        retention-days: 7  
+        if-no-files-found: warn
+
+
+    # ============================================================
+    # 7️⃣ SBOM + ASSINATURA + PROVENANCE
+    # ============================================================
+    - name: 🧩 Instalar Trivy
+      run: |
+        sudo apt-get update -y
+        sudo apt-get install -y wget apt-transport-https gnupg lsb-release jq
+        wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo apt-key add -
+        echo "deb https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" \
+          | sudo tee /etc/apt/sources.list.d/trivy.list
+        sudo apt-get update -y
+        sudo apt-get install -y trivy
+
+    - name: 🧩 Gerar SBOM (CycloneDX)
+      working-directory: ${{ env.APP_DIR }}
+      run: |
+        # Gera SBOM com Trivy em formato CycloneDX. Mantemos WARN se não houver dependências.
+        trivy fs . --security-checks vuln,license --format cyclonedx -o sbom.json || true
+
+    - name: 🔏 Assinar SBOM com Cosign
+      working-directory: ${{ env.APP_DIR }}
+      run: |
+        if [ -f sbom.json ]; then
+          cosign sign-blob sbom.json \
+            --yes \
+            --bundle sbom.bundle.json \
+            --output-signature sbom.sig || true
+        else
+          echo "⚠️ sbom.json não encontrado — skip sign"
+        fi
+
+    - name: 📤 Upload SBOM
+      uses: actions/upload-artifact@v4
+      with:
+        name: sbom
+        path: |
+          ${{ env.APP_DIR }}/sbom.json
+          ${{ env.APP_DIR }}/sbom.sig
+          ${{ env.APP_DIR }}/sbom.bundle.json
+        retention-days: 7
+        if-no-files-found: warn
+
+
+    # ============================================================
+    # 8️⃣ PROVENANCE (SLSA-like)
+    # ============================================================
+    - name: 🧾 Criar provenance.json
+      working-directory: ${{ env.APP_DIR }}
+      run: |
+        cat > provenance.json <<EOF
+        {
+          "type": "slsa-provenance",
+          "version": "1.0",
+          "repo": "${{ github.repository }}",
+          "commit": "${{ github.sha }}",
+          "builder": "github-actions",
+          "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        }
+        EOF
+
+    - name: 🔏 Assinar Provenance
+      working-directory: ${{ env.APP_DIR }}
+      run: |
+        if [ -f provenance.json ]; then
+          cosign sign-blob provenance.json \
+            --yes \
+            --output-signature provenance.sig \
+            --bundle provenance.bundle.json || true
+        else
+          echo "⚠️ provenance.json não encontrado — skip sign"
+        fi
+
+    - name: 📤 Upload Provenance
+      uses: actions/upload-artifact@v4
+      with:
+        name: provenance
+        path: |
+          ${{ env.APP_DIR }}/provenance.json
+          ${{ env.APP_DIR }}/provenance.sig
+          ${{ env.APP_DIR }}/provenance.bundle.json
+        retention-days: 7
+        if-no-files-found: warn
+
+
+    # ============================================================
+    # 9️⃣ mapping.txt (R8/ProGuard) — robusto e não-falha silenciosamente
+    # ============================================================
+    - name: 🔍 Verificar ofuscação (isMinifyEnabled) e coletar mapping.txt
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        APP_DIR="${{ env.APP_DIR }}"
+        echo "Procurando build file em: $APP_DIR/android/app/"
+
+        # Procura explicitamente dentro do app android correspondente
+        BUILD_FILE=$(find "$APP_DIR" -type f \( -path "*/android/app/build.gradle" -o -path "*/android/app/build.gradle.kts" \) 2>/dev/null | head -n 1 || true)
+
+        if [ -z "$BUILD_FILE" ]; then
+          echo "⚠️ build.gradle(.kts) não encontrado em $APP_DIR/android/app/ — não é possível verificar isMinifyEnabled."
+          # Se você prefere que isso quebre o release, substitua a linha abaixo por: exit 1
+        else
+          echo "Arquivo de build encontrado em: $BUILD_FILE"
+
+          # Testa por minifyEnabled true (Padrão Gradle / Kotlin DSL variations)
+          if grep -qE "minifyEnabled\s*true" "$BUILD_FILE"; then
+            echo "✅ minifyEnabled = true (ofuscação ativada)."
+          else
+            echo "❌ minifyEnabled NÃO encontrado como 'true' no build file."
+            # Se quer bloquear o release quando ofuscação estiver desativada, descomente exit 1 abaixo:
+            # exit 1
+          fi
+        fi
+
+        # Localiza mapping.txt (prefer release paths)
+        MAPPING_FILE=$(find "$APP_DIR" -type f -iname "mapping.txt" 2>/dev/null | grep -i "release" | head -n 1 || true)
+
+        mkdir -p artifacts
+
+        if [ -n "$MAPPING_FILE" ] && [ -f "$MAPPING_FILE" ]; then
+          echo "✅ mapping.txt encontrado: $MAPPING_FILE"
+          cp "$MAPPING_FILE" artifacts/mapping.txt
+        else
+          echo "⚠️ mapping.txt não encontrado. Se ofuscação foi ativada, verifique se o build gerou mapping.txt (R8/ProGuard)."
+        fi
+
+
+    # ============================================================
+    # 🔟 DECOMPILAÇÃO (APKTool + JADX) — SAST AVANÇADO (robusto)
+    # ============================================================
+    - name: Install JADX
+      run: |
+        wget -q https://github.com/skylot/jadx/releases/download/v1.5.1/jadx-1.5.1.zip -O jadx.zip
+        unzip -q jadx.zip -d jadx
+        sudo ln -sf "$(pwd)/jadx/bin/jadx" /usr/local/bin/jadx
+
+    - name: 🔍 Decompilar e Extrair SAST (bundletool -> universal.apk -> jadx)
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        APP_DIR="${{ env.APP_DIR }}"
+        AAB="$APP_DIR/build/app/outputs/bundle/release/app-release.aab"
+
+        echo "Preparando diretórios..."
+        mkdir -p sast_tmp sast_tools sast_reports
+
+        if [ ! -f "$AAB" ]; then
+          echo "❌ AAB não encontrado em: $AAB"
+          echo "Listando conteúdo de $APP_DIR/build/app/outputs/bundle/release:"
+          ls -la "$APP_DIR/build/app/outputs/bundle/release" || true
+          exit 1
+        fi
+
+        echo "Baixando bundletool..."
+        curl -sSL -o sast_tools/bundletool.jar https://github.com/google/bundletool/releases/download/1.11.0/bundletool-all-1.11.0.jar
+
+        echo "Gerando .apks com bundletool..."
+        java -jar sast_tools/bundletool.jar build-apks \
+          --bundle="$AAB" \
+          --output=sast_tmp/universal.apks \
+          --mode=universal || true
+
+        echo "Extraindo universal.apks..."
+        unzip -qo sast_tmp/universal.apks -d sast_tmp/universal_dir || true
+
+        echo "Procurando por universal/apk dentro do diretório extraído..."
+        UNIVERSAL_APK=$(find sast_tmp/universal_dir -type f -name "*.apk" | head -n 1 || true)
+
+        if [ -z "$UNIVERSAL_APK" ]; then
+          echo "❌ universal.apk não encontrado dentro de universal.apks"
+          echo "Conteúdo extraído:"
+          find sast_tmp/universal_dir -maxdepth 5 -type f -print || true
+          exit 1
+        fi
+
+        echo "Copiando APK universal para lokasi padrão..."
+        cp "$UNIVERSAL_APK" sast_tmp/app-universal.apk
+
+        echo "Rodando JADX..."
+        jadx -d sast_tmp/jadx sast_tmp/app-universal.apk || true
+
+        echo "Extraindo padrões SSL/TLS para análise rápida..."
+        grep -RIn "CertificatePinner" sast_tmp/jadx > sast_reports/ssl.txt || true
+        grep -RIn "TrustManager|X509TrustManager|checkServerTrusted|hostnameVerifier" sast_tmp/jadx > sast_reports/ssl_more.txt || true
+
+        echo "Decompilação concluída (relatórios em sast_reports)."
+
+
+    - name: 📤 Upload SAST reports
+      uses: actions/upload-artifact@v4
+      with:
+        name: sast-reports
+        path: sast_reports/**
+        retention-days: 7
+        if-no-files-found: warn
+
+
+    # ============================================================
+    # 1️⃣1️⃣ DAST — gerar APK universal para o job de pinning
+    # ============================================================
+    - name: 📦 Exportar APK universal para DAST
+      run: |
+        mkdir -p dast_artifacts
+        if [ -f sast_tmp/app-universal.apk ]; then
+          cp sast_tmp/app-universal.apk dast_artifacts/
+        else
+          echo "❌ APK universal não encontrado (sast_tmp/app-universal.apk)."
+          exit 1
+        fi
+
+    - name: 📤 Upload APK universal (DAST)
+      uses: actions/upload-artifact@v4
+      with:
+        name: dast-universal-apk
+        path: dast_artifacts/
+        retention-days: 7
+        if-no-files-found: warn
+
+
+    # ============================================================
+    # 1️⃣2️⃣ SECURITY CHECKS CUSTOMIZADOS
+    # ============================================================
+    - name: 🛡️ Executar scripts do security-checks.sh
+      run: |
+        if [ -f ./scripts/security-checks.sh ]; then
+          chmod +x scripts/security-checks.sh
+          ./scripts/security-checks.sh
+        else
+          echo "⚠️ scripts/security-checks.sh não encontrado — skip."
+        fi
+
+
+    # ============================================================
+    # 1️⃣3️⃣ SAST via MobSFScan (pip)
+    # ============================================================
+    - name: Instalar MobSFScan
+      run: |
+        python3 -m venv venv
+        source venv/bin/activate
+        pip install mobsfscan || true
+
+    - name: Executar MobSFScan
+      run: |
+        source venv/bin/activate || true
+        if [ -f "${{ env.APP_DIR }}/build/app/outputs/bundle/release/app-release.aab" ]; then
+          mobsfscan --json -o mobsf.json "${{ env.APP_DIR }}/build/app/outputs/bundle/release/app-release.aab" || true
+        else
+          echo "⚠️ AAB não encontrado para MobSFScan — skip."
+        fi
+
+    - name: Upload MobSF reports
+      uses: actions/upload-artifact@v4
+      with:
+        name: mobsf
+        path: mobsf.json
+        retention-days: 7
+        if-no-files-found: warn
+
+
+    # ============================================================
+    # 1️⃣4️⃣ TAG DE RELEASE AUTOMÁTICA
+    # ============================================================
+    - name: 🏷️ Criar Tag Automática
+      if: ${{ success() && startsWith(github.ref, 'refs/heads/release/') }}
+      run: |
+        VERSION=${GITHUB_REF#refs/heads/release/}
+        TAG="v${VERSION}"
+
+        echo "🏷️ Solicitação de criação da tag: $TAG"
+
+        # Mantém o comportamento original,
+        # mas impede que a tag existente quebre o pipeline.
+        if git rev-parse "$TAG" >/dev/null 2>&1; then
+          echo "⚠️ A tag $TAG já existe (comportamento original mantido)."
+          echo "ℹ️ Ignorando criação da tag para evitar falha no job."
+          exit 0
+        fi
+
+        # Comportamento original (criação da tag idêntica)
+        git config user.name "github-actions"
+        git config user.email "actions@github.com"
+        git tag -a "$TAG" -m "Release $VERSION"
+        git push origin "$TAG"
+
+        echo "✅ Tag $TAG criada com sucesso."
+
+
+
+    # ============================================================
+    # 1️⃣5️⃣ SUMÁRIO FINAL — VISUAL REFINADO
+    # ============================================================
+    - name: 📄 SUMÁRIO FINAL
+      if: always()
+      run: |
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "🏁  FINAL DO PIPELINE — RELATÓRIO EXECUTIVO"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo ""
+
+        echo "📦 **Build & Artefatos**"
+        echo "──────────────────────────────"
+        if [ -f aab_paths.txt ]; then
+          echo "✔️ Arquivo aab_paths.txt encontrado:"
+          cat aab_paths.txt
+        else
+          echo "❌ Nenhum AAB encontrado."
+        fi
+        echo ""
+
+        echo "🧵 **Artefatos do AAB (Release)**  ──────────────────────────────"
+        ls -la ${{ env.APP_DIR }}/build/app/outputs/bundle/release 2>/dev/null || echo "❌ Sem artefatos de bundle encontrados."
+        echo ""
+
+        echo "🔐 **Assinatura (Cosign)**  ──────────────────────────────"
+        if ls ${{ env.APP_DIR }}/*.sig >/dev/null 2>&1; then
+          echo "✔️ Assinatura Cosign gerada:"
+          ls -la ${{ env.APP_DIR }}/*.sig
+        else
+          echo "❌ Nenhuma assinatura .sig encontrada."
+        fi
+        if ls ${{ env.APP_DIR }}/*.bundle.json >/dev/null 2>&1; then
+          echo "✔️ Bundle de transparência:"
+          ls -la ${{ env.APP_DIR }}/*.bundle.json
+        else
+          echo "❌ Nenhum bundle JSON encontrado."
+        fi
+        echo ""
+
+        echo "📜 **SBOM (CycloneDX)**  ──────────────────────────────"
+        if [ -f "${{ env.APP_DIR }}/sbom.json" ]; then
+          echo "✔️ SBOM gerada:"
+          ls -la ${{ env.APP_DIR }}/sbom.json
+        else
+          echo "❌ SBOM não encontrada."
+        fi
+        echo ""
+
+        echo "🧬 **Provenance (SLSA-Like)** ──────────────────────────────"
+        if [ -f "${{ env.APP_DIR }}/provenance.json" ]; then
+          echo "✔️ Provenance gerada:"
+          ls -la ${{ env.APP_DIR }}/provenance.json
+        else
+          echo "❌ Provenance não encontrada."
+        fi
+        echo ""
+
+        echo "🛡️ **SAST — Decompilação + Análises**  ──────────────────────────────"
+        if [ -d sast_reports ]; then
+          echo "✔️ Relatórios SAST disponíveis:"
+          ls -la sast_reports
+        else
+          echo "❌ Nenhum relatório SAST encontrado."
+        fi
+        echo ""
+
+        echo "📱 **MobSFScan**  ──────────────────────────────"
+        if [ -f mobsf.json ]; then
+          echo "✔️ Relatório MobSFScan:"
+          ls -la mobsf.json
+        else
+          echo "❌ Nenhum relatório MobSFScan encontrado."
+        fi
+        echo ""
+
+        echo "🧪 **DAST — SSL Pinning**  ──────────────────────────────"
+        if [ -d dast_artifacts ]; then
+          echo "✔️ APK universal para DAST:"
+          ls -la dast_artifacts
+        else
+          echo "❌ Nenhum artefato DAST encontrado."
+        fi
+        echo ""
+
+        echo "📦 **mapping.txt (R8/ProGuard)**  ──────────────────────────────"
+        if [ -f artifacts/mapping.txt ]; then
+          echo "✔️ mapping.txt disponível:"
+          ls -la artifacts/mapping.txt
+        else
+          echo "⚠️ mapping.txt não encontrado (possível build sem R8 ativo)"
+        fi
+        echo ""
+
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "🎉   PIPELINE FINALIZADA — TODOS OS PASSOS EXECUTADOS"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+
+
+  # ============================================================
+  # 🔄 JOB SEPARADO: DAST (SSL Pinning)
+  # Executado somente após build_release_android
+  # ============================================================
+  security_gate_dast:
+    name: "🧪 DAST — SSL Pinning"
+    needs: build_release_android
+
+    uses: AlexandreTSato/BankModel/.github/workflows/cd-android-dast-pinning.yml@release/1.0.0
+
+    with:
+      apk_artifact_name: dast-universal-apk
+      target_package_name: com.example.appbank

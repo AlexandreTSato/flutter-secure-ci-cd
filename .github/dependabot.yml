@@ -1,0 +1,48 @@
+# .github/dependabot.yml
+version: 2
+updates:
+  # 1. MONITORAMENTO DO ROOT (Opcional, para dependências dev/ferramentas)
+  - package-ecosystem: "pub"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    target-branch: "develop"
+
+  # 2. MONITORAMENTO DO PACOTE 'appbank'
+  - package-ecosystem: "pub"
+    directory: "/apps/appbank" # Caminho do pacote appbank
+    schedule:
+      interval: "weekly"
+    target-branch: "develop"
+    # O Dependabot precisa de um nome único para o update, 
+    # mas se o 'directory' for diferente, ele já o considera único.
+
+  # 3. MONITORAMENTO DO PACOTE 'pix'
+  - package-ecosystem: "pub"
+    directory: "/packages/pix" # Assumindo que o pix está em 'packages'
+    schedule:
+      interval: "weekly"
+    target-branch: "develop"
+
+# Ativar alertas no repositório GitHub:
+# Settings → Code Security and Analysis
+# Ative:
+
+# ✅ Dependabot alerts
+
+# ✅ Dependabot security updates
+
+# 1️⃣ Vá em:
+# 👉 GitHub → Settings → Developer settings → Personal access tokens → Fine-grained tokens
+
+# 2️⃣ Crie um token com:
+
+# Repository contents (Read)
+
+# Dependabot alerts (Read)
+
+# 3️⃣ Salve o token no repositório (ou org) como segredo:
+
+# Repo → Settings → Secrets and variables → Actions → New repository secret
+
+# GH_DEPENDABOT_TOKEN

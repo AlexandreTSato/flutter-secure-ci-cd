@@ -1,0 +1,15 @@
+# analysis_options.yaml
+include: package:flutter_lints/flutter.yaml
+
+analyzer:
+  # Boas Práticas: Tratar warnings como erros para forçar o CI a quebrar
+  # em problemas de qualidade e garantir o 'clean code'.
+  errors:
+    dead_code: error
+    avoid_print: warning
+    prefer_single_quotes: warning
+    # ... adicione outras regras importantes
+
+# Exclua a pasta FVM da análise
+exclude:
+  - .fvm/**

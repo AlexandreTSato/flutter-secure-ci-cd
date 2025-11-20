@@ -1,0 +1,471 @@
+name: CI - QUALIDADE
+
+# Quando o workflow roda:
+on:
+  # 1) Rodar checks rápidos em todo Pull Request (feedback rápido)
+  pull_request:
+    branches: [main, develop]
+
+  # 2) Rodar verificação + build em pushes para branches principais
+  push:
+    branches: [main, develop]
+
+# Evita filas duplicadas para a mesma branch/PR
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+ # -------------------
+  # 1️⃣ Setup e Cache (Job base — prepara o runner)
+  # -------------------
+  setup:
+    if: ${{ !startsWith(github.head_ref, 'dependabot/') }}
+    runs-on: ubuntu-latest
+
+    timeout-minutes: 10
+    outputs:
+      cache-key: ${{ steps.cache.outputs.cache-hit }}
+
+    steps:
+
+      # Debug inicial
+      - name: 🔎 Debug Head Ref Description
+        run: | 
+          echo "Head Ref is: ${{ github.head_ref }}"
+
+      # Checkout completo
+      - name: ⬇️ Checkout (completo)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+          lfs: true
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      # Secret Scan
+      - name: 🔐 Secret Scan (detect-secrets)
+        run: |
+          echo "🔍 Executando varredura de segredos..."
+          if [ -f ./scripts/ci-git-secret-scan.sh ]; then
+            chmod +x ./scripts/ci-git-secret-scan.sh
+            ./scripts/ci-git-secret-scan.sh
+          else
+            echo "⚠️ Script de secret scan NÃO encontrado em ./scripts/ci-git-secret-scan.sh"
+            exit 1
+          fi
+
+      # Debug do repo
+      - name: 📂 Debug – Estrutura de pastas
+        run: |
+          echo "PWD: $(pwd)"
+          echo "Listando /packages..."
+          ls -la packages || echo "❌ pasta 'packages' não encontrada"
+          echo "Listando raiz (2 níveis)..."
+          ls -la | sed -n '1,200p'
+
+      # Setup Flutter/Dart
+      - name: ⚙️ Configurar Ambiente (Flutter, Dart, PATH)
+        uses: ./.github/actions/setup-env
+
+      # Limpeza automática quando a versão do Flutter muda
+      - name: 🧹 Limpar artefatos se versão do Flutter mudou
+        if: env.FLUTTER_VERSION != ''
+        run: |
+          echo "🌀 Versão atual do Flutter: $FLUTTER_VERSION"
+          
+          CACHE_META="$HOME/.pub-cache/flutter-version.txt"
+
+          # Se arquivo com versão não existir → nova instalação
+          if [ ! -f "$CACHE_META" ]; then
+            echo "Nenhum registro de versão prévia — criando..."
+            echo "$FLUTTER_VERSION" > "$CACHE_META"
+          else
+            OLD_VERSION=$(cat "$CACHE_META")
+            echo "📦 Versão cache anterior: $OLD_VERSION"
+
+            if [ "$OLD_VERSION" != "$FLUTTER_VERSION" ]; then
+              echo "⚠️ Flutter mudou → Limpando .dart_tool e cache hosted"
+              rm -rf .dart_tool || true
+              rm -rf $HOME/.pub-cache/hosted || true
+              echo "$FLUTTER_VERSION" > "$CACHE_META"
+            else
+              echo "✔ Versão igual — mantendo cache"
+            fi
+          fi
+
+      # Cache com versão do Flutter
+      - name: 💾 Restaurar/Criar Cache de Dependências
+        uses: actions/cache@v4
+        id: cache
+        with:
+          path: |
+            ~/.pub-cache
+            .dart_tool/
+          key: ${{ runner.os }}-flutter-${{ env.FLUTTER_VERSION }}-pub-${{ hashFiles('**/pubspec.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-flutter-${{ env.FLUTTER_VERSION }}-pub-
+
+      # Verificação Melos
+      - name: 📌 Verificar melos.yaml e listar pacotes
+        run: |
+          if [ -f ./melos.yaml ]; then
+            echo "melos.yaml encontrado!"
+            dart pub global activate melos
+            echo "$HOME/.pub-cache/bin" >> $GITHUB_PATH
+            melos list || true
+          else
+            echo "❌ melos.yaml NÃO encontrado!"
+            ls -la
+            exit 1
+          fi
+
+      # Melos Bootstrap
+      - name: 📦 Melos Bootstrap
+        working-directory: ${{ github.workspace }}
+        run: |
+          dart pub global activate melos
+          echo "$HOME/.pub-cache/bin" >> $GITHUB_PATH
+          melos bootstrap
+
+  # -------------------
+  # 2️⃣ Formatação + Análise Estática (Rápido — PRs)
+  # -------------------
+  analise_e_formato:
+    needs: setup
+    if: ${{ !startsWith(github.head_ref, 'dependabot/') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: ⬇️ Checkout (rápido) 
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: ⚙️ Setup-env (mesmo ambiente do job base)
+        uses: ./.github/actions/setup-env
+
+      - name: 💾 Restaurar Cache (novamente, para esse job)
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.pub-cache
+            .dart_tool/
+          key: ${{ runner.os }}-pub-${{ hashFiles('**/pubspec.lock') }}
+
+      - name: 📦 Melos Bootstrap (Garantia de Links)
+        working-directory: ${{ github.workspace }}
+        run: melos bootstrap
+
+      - name: 📐 Verificar Formatação (CRÍTICO)
+        # Verificação não altera código; falha bloqueante para PRs
+        run: melos run format:check
+
+      - name: 🧐 Análise Estática (CRÍTICO)
+        # dart/flutter analyze + regras do time. Relacionado a seguranças estáticas.
+        # Recomendação MASVS/OWASP Mobile: análise estática detecta má configuração TLS, uso inseguro de APIs, validação de entrada, etc.
+        run: melos run analyze
+
+      - name: 📝 Report — Dependências desatualizadas (informativo)
+        # Informe ao time sobre pacotes desatualizados — não bloqueante.
+        run: |
+          echo "Relatório de dependências desatualizadas (informativo)"
+          melos exec -- dart pub outdated || true
+
+  # -------------------
+  # 3️⃣ Testes Unitários + Cobertura (Roda em paralelo ao 2)
+  # -------------------
+  testes_unidade:
+    needs: setup
+    if: ${{ !startsWith(github.head_ref, 'dependabot/') }}
+    runs-on: ubuntu-latest
+    outputs:
+      coverage-path: coverage/html
+    steps:
+      - name: ⬇️ Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: ⚙️ Setup-env
+        uses: ./.github/actions/setup-env
+
+      - name: 💾 Restaurar Cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.pub-cache
+            .dart_tool/
+          key: ${{ runner.os }}-pub-${{ hashFiles('**/pubspec.lock') }}
+
+      - name: 🛠️ Instalar lcov (para gerar relatórios HTML)
+        run: sudo apt-get update && sudo apt-get install -y lcov
+
+      - name: 📦 Melos Bootstrap (Garantia de Links)
+        working-directory: ${{ github.workspace }}
+        run: melos bootstrap
+
+      - name: 🧪 Executar Testes Unitários e Cobertura (Melos)
+        # Executa testes de todos os packages que tiverem script `test` no melos.yaml
+        run: melos run test
+
+      - name: 📂 Combinar Cobertura (LCOV)
+        run: |
+          mkdir -p coverage
+          find . -name "lcov.info" | while read -r file; do
+            cat "$file" >> coverage/combined.lcov.info
+          done
+
+      - name: 🔄 Corrigir Caminhos do LCOV (Monorepo)
+        # Ajusta caminhos gerados pelo runner para que o relatório HTML funcione
+        run: |
+          mkdir -p coverage
+          sed -E 's|SF:/home/runner/work/[^/]*/[^/]*/||g' coverage/combined.lcov.info > coverage/lcov_tmp.info
+          # Ajuste por app específico — personalize conforme estrutura do seu monorepo
+          if grep -q "SF:lib/" coverage/lcov_tmp.info; then
+            echo "🔧 Ajustando caminhos relativos para monorepo..."
+            sed -E 's|SF:lib/|SF:apps/appbank/lib/|g' coverage/lcov_tmp.info > coverage/lcov_formatted.info || mv coverage/lcov_tmp.info coverage/lcov_formatted.info
+          else
+            mv coverage/lcov_tmp.info coverage/lcov_formatted.info
+          fi
+
+      - name: 📊 Gerar Relatório HTML (LCOV -> HTML)
+        run: genhtml coverage/lcov_formatted.info -o coverage/html --ignore-errors source --synthesize-missing
+
+      - name: ⬆️ Upload do Relatório HTML (Artefato)
+        uses: actions/upload-artifact@v4
+        with:
+          name: relatorio-cobertura-flutter
+          path: coverage/html
+          retention-days: 7
+
+      - name: 🧾 Publicar cobertura (opcional)
+        # Aqui você poderia postar a cobertura em um serviço (Codecov/Coveralls) se desejar.
+        run: echo "Cobertura gerada em coverage/html"
+
+  # -------------------
+  # 4️⃣ Build de verificação (Somente no Merge/Push para branches principais)
+  # -------------------
+  verificacao_build:
+    needs: [analise_e_formato, testes_unidade]
+    runs-on: ubuntu-latest
+    # Executa somente quando é push na main (ou PR cujo base é main) — evita builds desnecessários
+    if: >
+      (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'))
+      ||
+      (github.event_name == 'pull_request' && (github.base_ref == 'main' || github.base_ref == 'develop'))
+
+    steps:
+      - name: ⬇️ Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: ⚙️ Setup-env
+        uses: ./.github/actions/setup-env
+
+      - name: 💾 Restaurar Cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.pub-cache
+            .dart_tool/
+          key: ${{ runner.os }}-pub-${{ hashFiles('**/pubspec.lock') }}
+
+      - name: 📦 Melos Bootstrap (Garantia de Links)
+        working-directory: ${{ github.workspace }}
+        run: melos bootstrap
+        
+
+      # ======================================================
+      # 🔐 OSV API SCANNER — Flutter/Dart/Melos (YAML-SAFE / FINAL)
+      # ======================================================
+
+      #OPCIONAL - Quase nenhum vulnerabilidade foi encontrada e registrada no OSC para pub
+      #O OSV abaixo e para testes ou para aplicações que tem níveis de segurança elevado e não querem outra forma de controle.
+
+      #🔐 Segurança de Dependências (Flutter/Dart) com OSV.dev
+      # Este projeto utiliza o OSV.dev (Open Source Vulnerabilities) — a base oficial de vulnerabilidades mantida pela Google — para realizar Análise de Composição de Software (SCA) no ecossistema Flutter/Dart, substituindo ferramentas como Snyk, que atualmente não oferecem suporte oficial ao gerenciador de pacotes pub.
+      # Por que OSV?
+      # É a base de vulnerabilidades utilizada por Google, Android, Rust, Python e diversos ecossistemas oficiais.
+      # Disponibiliza uma API pública, gratuita e aberta, sem necessidade de tokens.
+      # Suporta Flutter/Dart via ecossistema “Pub”, permitindo varredura direta de dependências listadas nos pubspec.lock.
+      # Não requer instalação de binários adicionais ou ferramentas externas.
+      # 🔍 O que exatamente está sendo analisado?
+      # O pipeline extrai automaticamente todos os arquivos pubspec.lock do workspace (Melos) e envia a lista de dependências para o OSV.dev, identificando vulnerabilidades relacionadas a:
+      # Dependências diretas (dependencies)
+      # Dependências transitivas (transitive dependencies)
+      # Versões inseguras ou com CVE atribuídos
+      # Libraries Flutter/Dart do Pub.dev
+      # Bibliotecas nativas integradas ao app via plugins
+
+      - name: Inicio da Analise do OSV API SCANNER 
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq
+          sudo snap install yq
+
+      # -----------------------------
+      # Localizar todos os pubspec.lock
+      # -----------------------------
+      - name: Locate pubspec.lock files
+        run: |
+          find . -name "pubspec.lock" > lockfiles.txt
+          sort -u lockfiles.txt -o lockfiles.txt
+
+          echo "📦 pubspec.lock encontrados:"
+          cat lockfiles.txt
+
+      # -----------------------------
+      # Preparar payload OSV.dev (sem HEREDOC)
+      # -----------------------------
+      - name: Prepare OSV payload
+        run: |
+          echo '{"queries":[' > osv_queries.json
+
+          while read -r LOCK; do
+            echo "🔍 Parsing $LOCK"
+
+            JSON=$(yq -o=json '.' "$LOCK")
+
+            echo "$JSON" \
+            | jq -c '.packages | to_entries[]' \
+            | while read -r ENTRY; do
+                NAME=$(echo "$ENTRY" | jq -r '.key')
+                VERSION=$(echo "$ENTRY" | jq -r '.value.version')
+
+                # Ignorar SDK, git e paths
+                if [[ "$VERSION" == *"from sdk"* ]]; then continue; fi
+                if echo "$ENTRY" | grep -q '"source":"git"'; then continue; fi
+                if echo "$ENTRY" | grep -q '"source":"path"'; then continue; fi
+
+                # Adiciona item SEMPRE com vírgula no final
+                printf '{"package":{"name":"%s","ecosystem":"Pub"},"version":"%s"},' \
+                  "$NAME" "$VERSION" >> osv_queries.json
+              done
+
+          done < lockfiles.txt
+
+          # Remover a última vírgula
+          sed -i 's/,$//' osv_queries.json
+
+          # Fechar JSON
+          echo "]}" >> osv_queries.json
+
+          echo "📝 Payload OSV preparado:"
+          cat osv_queries.json
+
+
+      # -----------------------------
+      # Consultar API OSV.dev
+      # -----------------------------
+      - name: Query OSV API
+        run: |
+          curl -s -X POST "https://api.osv.dev/v1/querybatch" \
+            -H "Content-Type: application/json" \
+            -d @osv_queries.json > osv_response.json
+
+          echo "📄 OSV API response:"
+          cat osv_response.json
+
+      - name: Generate Markdown Report
+        run: |
+          echo "# 🔍 OSV.dev Vulnerability Report" > osv_report.md
+          echo "" >> osv_report.md
+          echo "Gerado automaticamente pelo pipeline CI/CD." >> osv_report.md
+          echo "" >> osv_report.md
+
+          echo "## 📄 Payload enviado (osv_queries.json)" >> osv_report.md
+          echo '```json' >> osv_report.md
+          cat osv_queries.json >> osv_report.md
+          echo '```' >> osv_report.md
+          echo "" >> osv_report.md
+
+          echo "## 📥 Resposta da API (osv_response.json)" >> osv_report.md
+          echo '```json' >> osv_report.md
+          cat osv_response.json >> osv_report.md
+          echo '```' >> osv_report.md
+          echo "" >> osv_report.md
+
+          echo "## 📊 Resultado resumido" >> osv_report.md
+          echo "" >> osv_report.md
+
+          TOTAL=$(jq '.results | length' osv_response.json)
+          AFFECTED=$(jq '[.results[] | select(.vulns != null)] | length' osv_response.json)
+          CRIT=$(jq '[.results[]?.vulns[]? | select(.severity=="CRITICAL" or .severity=="HIGH")] | length' osv_response.json)
+          HIGH=$(jq '[.results[]?.vulns[]? | select(.severity=="HIGH")] | length' osv_response.json)
+          MED=$(jq '[.results[]?.vulns[]? | select(.severity=="MEDIUM")] | length' osv_response.json)
+          LOW=$(jq '[.results[]?.vulns[]? | select(.severity=="LOW")] | length' osv_response.json)
+
+          {
+            echo "**Pacotes analisados:** $TOTAL"
+            echo "**Pacotes afetados:** $AFFECTED"
+            echo ""
+            echo "| Severidade       | Quantidade |"
+            echo "|------------------|------------|"
+            echo "| 🟥 Critical/High | $CRIT      |"
+            echo "| 🟧 High          | $HIGH      |"
+            echo "| 🟨 Medium        | $MED       |"
+            echo "| 🟩 Low           | $LOW       |"
+            echo ""
+            echo "## 📌 Vulnerabilidades encontradas"
+
+            VULNS=$(jq -r '
+              .results[]
+              | select(.vulns != null)
+              | .vulns[]
+              | "- ID: \(.id) - Severity: \(.severity) - Affected: \(.affected[]?.package?.name // "")"
+            ' osv_response.json)
+
+            if [ -z "$VULNS" ]; then
+              echo "Nenhuma vulnerabilidade encontrada."
+            else
+              echo "$VULNS"
+            fi
+          } >> osv_report.md
+
+
+      # -----------------------------
+      # Upload dos artefatos (retenção de 2 dias)
+      # -----------------------------
+      - name: Upload OSV Payload
+        uses: actions/upload-artifact@v4
+        with:
+          name: osv_payload
+          path: osv_queries.json
+          retention-days: 2
+
+      - name: Upload OSV Response
+        uses: actions/upload-artifact@v4
+        with:
+          name: osv_response
+          path: osv_response.json
+          retention-days: 2
+
+      - name: Upload OSV Markdown Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: osv_report_markdown
+          path: osv_report.md
+          retention-days: 2
+
+
+
+      # -----------------------------
+      # Falhar pipeline se CRITICAL/HIGH
+      # -----------------------------
+      - name: Fail on Critical
+        run: |
+          if [ "${{ steps.osv-summary.outputs.critical_count }}" -gt 0 ]; then
+            echo "❌ Build bloqueado devido a vulnerabilidades severas."
+            exit 1
+          fi
+
+          echo "✔ Nenhuma vulnerabilidade grave detectada."
+
+
+      - name: ✅ Build de Verificação (Debug)
+        # Build para validação (por exemplo: flutter build apk --debug)
+        # Mantemos como melos run build_app para não quebrar scripts existentes.
+        run: melos run build_app
+
+     

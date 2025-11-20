@@ -1,0 +1,6 @@
+# melos_managed_dependency_overrides: pix,shared_ui
+dependency_overrides:
+  pix:
+    path: ..\\..\\packages\\pix
+  shared_ui:
+    path: ..\\..\\packages\\shared_ui

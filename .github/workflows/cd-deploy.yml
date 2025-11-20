@@ -1,0 +1,101 @@
+name: 🚨🚨🚨 Android Deploy Google Play Store
+
+on:   
+  workflow_run:
+    workflows: ["CD ANDROID DAST"] 
+    types: 
+      - completed
+      
+permissions:
+  contents: read
+  security-events: write
+  actions: read 
+  issues: write # Permite que o ZAP Action crie Issues (Problemas) no GitHub
+
+jobs:
+  zap_dast_scan:
+    runs-on: ubuntu-latest
+    
+
+    # ⏱️ Tempo limite total para o job
+    timeout-minutes: 20
+    
+    # Executa apenas se o workflow anterior foi concluído com sucesso ou se for execução manual
+    if: |      
+      github.event_name == 'workflow_dispatch' || 
+      (github.event_name == 'workflow_run' && 
+       github.event.workflow_run.conclusion == 'success' &&      
+       contains(github.event.workflow_run.head_branch, 'release'))
+
+    steps:
+      - name: ⬇️ Teste
+        uses: actions/checkout@v4
+
+
+      # ----------------------------
+      # PASSO NOVO 1A: Tentar Restaurar a Instalação do Cosign
+      # ----------------------------
+      - name: ⬇️ Cache de Instalação do Cosign
+        id: cache-cosign
+        uses: actions/cache@v4
+        with:
+          path: /usr/local/bin/cosign # Ou o caminho onde o Cosign é instalado/usado (geralmente /usr/local/bin)
+          key: ${{ runner.os }}-cosign-v1.0 # Use uma chave que invalida quando a versão do Cosign muda
+
+      # ----------------------------
+      # PASSO NOVO 1B: Instalar Cosign APENAS se o cache falhar (cache-hit != true)
+      # ----------------------------
+      - name: 🛠️ Instalar Cosign (Sigstore)
+        if: steps.cache-cosign.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          echo "Instalando Cosign..."
+          # Re-executa o comando de instalação se o cache falhou
+          curl -sL https://install.sigstore.dev/cosign | sh
+          
+          # Move para um diretório que será cacheado/acessível globalmente se não estiver no $PATH
+          # Se o 'curl | sh' já move para /usr/local/bin, o cache-hit deve funcionar. 
+          # Caso contrário, mova o binário (ex: mv $HOME/bin/cosign /usr/local/bin)
+          
+      # ----------------------------
+      # PASSO NOVO 2: Baixar Artefatos (Permanentemente Necessário)
+      # ----------------------------
+      - name: ⬇️ Baixar Artefatos Assinados (SBOM/Provenance)
+        uses: actions/download-artifact@v4
+        with:
+          name: release_artifacts
+          path: ./release_artifacts
+          run-id: ${{ github.event.workflow_run.id }} 
+
+      # ----------------------------
+      # 🔎 PASSO 3: Verificar Provenance and SBOM Signatures
+      # (Agora com os caminhos corretos)
+      # ----------------------------
+      - name: 🔎 Verify provenance & SBOM signatures with Cosign
+        env:
+          COSIGN_EXPERIMENTAL: "1"
+        run: |
+          set -euo pipefail
+          echo "🔐 Verifying signed artifacts before Play Store upload..."
+          
+          # Verifica assinatura da proveniência
+          cosign verify-blob --signature ./release_artifacts/provenance.sig ./release_artifacts/provenance.json
+      
+          # Verifica assinatura do SBOM CycloneDX
+          cosign verify-blob --signature ./release_artifacts/sbom.sig ./release_artifacts/sbom.json
+      
+          # Verifica assinatura do AAB release (opcional, se assinado via cosign)
+          if [ -f ./release_artifacts/app-release.aab.sig ]; then
+            cosign verify-blob --signature ./release_artifacts/app-release.aab.sig ./release_artifacts/app-release.aab
+          fi
+      
+          echo "✅ All signatures verified successfully. Proceeding to publish..."
+
+
+#     - name: 🚀 Upload to Google Play
+#   uses: r0adkll/upload-google-play@v3
+#   with:
+#     serviceAccountJsonPlainText: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT }}
+#     packageName: com.seubanco.app
+#     releaseFiles: app-release.aab
+

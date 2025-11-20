@@ -1,0 +1,27 @@
+# Padrão Flutter
+.dart_tool/
+.packages
+.flutter-plugins
+.flutter-plugins-dependencies
+.idea/
+.vscode/
+pubspec.lock
+build/
+**/*.iml
+
+# Padrão OS
+.DS_Store
+Thumbs.db
+
+# Pastas de Build (dentro dos pacotes)
+**/build/
+**/build/outputs/mapping/** # ProGuard/R8 mapping files (Android)
+**/sast_reports/
+**/ios/Flutter/.symlinks/
+**/android/local.properties
+
+# Pastas do Melos e FVM (Se você tivesse usado FVM)
+# Mesmo sem o FVM, Melos pode criar links ou cache.
+.melos/
+.fvm/
+
