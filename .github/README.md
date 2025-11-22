@@ -1,187 +1,248 @@
 ![alt text](image-3.png)
 
-<br>
+<h1 align="center">🔐 Flutter Secure Pipeline — DevSecOps Mobile </h1>
 
-# 🔐 CI/CD Seguro para Aplicativos Flutter  
-Pipeline Android com ferramentas Open Source · Segurança Mobile · Supply Chain · SAST/DAST
+<p align="center">
+  <i>Pipeline completa de CI/CD Seguro para Apps Flutter (Android), alinhada a MASVS, OWASP Mobile e Supply Chain Security.</i><br/>
+  <i>Qualidade · Segurança · Automação · Integridade · Confiabilidade</i>
+</p>
 
 ---
 
-# 🏷️ Badges Profissionais
+# ⚡ Resumo Executivo
 
-<p align="left">
+- 🛡 **30+ validações automáticas de segurança** para apps Flutter (Android)  
+- 📦 Cobertura de **SAST, DAST, SCA, Binary Scan e Supply Chain Security**  
+- 📘 Alinhado aos padrões **MASVS**, **OWASP Mobile Top 10** e **SLSA**  
+- 🔑 Assinatura OIDC (Keyless) + SBOM (CycloneDX) + Provenance assinada  
+- 🧪 Governança de Engenharia com: **melos analyze**, **format:check**, **tests**, **coverage**, **Semgrep**, **CodeQL**  
+- 📱 App alvo real (**FlutterBank**), modular e arquitetado  
+- 🔍 Foco total em open-source + segurança mobile enterprise  
 
-<img src="https://img.shields.io/badge/GitHub%20Actions-CI%2FCD-blue?logo=githubactions&logoColor=white" />
-<img src="https://img.shields.io/badge/Flutter-3.x-blue?logo=flutter" />
-<img src="https://img.shields.io/badge/Android-Secure-green?logo=android" />
+---
 
-<img src="https://img.shields.io/badge/SAST-MobSF-informational?logo=security" />
-<img src="https://img.shields.io/badge/SAST-Custom%20Rules-grey?logo=gnu-bash" />
+# 🏅 Badges Profissionais
 
-<img src="https://img.shields.io/badge/DAST-mitmproxy-critical?logo=hackthebox" />
+<p align="center">
 
-<img src="https://img.shields.io/badge/Secrets-Gitleaks-orange?logo=git" />
-<img src="https://img.shields.io/badge/Secrets-Detect--Secrets-orange?logo=github" />
+<!-- Core Tech -->
+<img src="https://img.shields.io/badge/Flutter-3.x-02569B?style=for-the-badge&logo=flutter&logoColor=white"/>
+<img src="https://img.shields.io/badge/Dart-3.x-0175C2?style=for-the-badge&logo=dart&logoColor=white"/>
 
-<img src="https://img.shields.io/badge/SCA-Trivy-yellow?logo=aqua" />
-<img src="https://img.shields.io/badge/SCA-OSV.dev-yellow?logo=oss" />
+<!-- CI/CD -->
+<img src="https://img.shields.io/badge/GitHub_Actions-CI%2FCD-2088FF?style=for-the-badge&logo=githubactions&logoColor=white"/>
 
-<img src="https://img.shields.io/badge/SLSA-L3-purple?logo=googlecloud" />
-<img src="https://img.shields.io/badge/Supply--Chain-Cosign-purple?logo=sigstore" />
+<!-- Code Quality -->
+<img src="https://img.shields.io/badge/Quality-Tests%20%2B%20Coverage-blue?style=for-the-badge&logo=testcafe&logoColor=white"/>
+<img src="https://img.shields.io/badge/Static%20Analysis-melos%20analyze-yellow?style=for-the-badge"/>
+
+<!-- Security -->
+<img src="https://img.shields.io/badge/SAST-MobSF%20%2B%20Semgrep-orange?style=for-the-badge"/>
+<img src="https://img.shields.io/badge/DAST-mitmproxy%20%2B%20ZAP-critical?style=for-the-badge"/>
+<img src="https://img.shields.io/badge/SCA-Trivy%20%2B%20OSV.dev-blueviolet?style=for-the-badge"/>
+<img src="https://img.shields.io/badge/Secrets-Gitleaks%20%2B%20Detect--Secrets-red?style=for-the-badge"/>
+
+<!-- Supply Chain -->
+<img src="https://img.shields.io/badge/SBOM-CycloneDX-important?style=for-the-badge"/>
+<img src="https://img.shields.io/badge/Sign-Cosign%20Keyless-success?style=for-the-badge"/>
+<img src="https://img.shields.io/badge/SLSA-Provenance-orange?style=for-the-badge"/>
+
+<!-- Standards -->
+<img src="https://img.shields.io/badge/MASVS-L1%20%26%20L2-green?style=for-the-badge&logo=owasp"/>
+<img src="https://img.shields.io/badge/OWASP-Mobile%20Top%2010-informational?style=for-the-badge&logo=owasp"/>
 
 </p>
 
 ---
 
-# 🚀 Visão Geral
+# 🎯 Objetivo
 
-Este repositório apresenta um pipeline completo de **CI/CD seguro para Flutter (Android)**, usando **somente ferramentas open-source** ou gratuitas.  
-A pipeline cobre:
+Este repositório é um laboratório que demonstra uma **pipeline de Segurança Mobile para Flutter (Android)**, construída **100% com ferramentas open-source** e estruturada como referência para evolução de segurança de aplicativos que exigem maior rigor no controle de vulnerabilidades.
 
-- Segurança mobile automatizada  
-- Análises SAST e DAST  
-- Supply Chain Security (SLSA + Cosign)  
-- Secret scanning em múltiplas camadas  
-- Build Android com gates de segurança  
-- Flutter modular com Melos  
-- App real como alvo (FlutterBank – módulo PIX)
+O objetivo principal é demonstrar como iniciar e testar um pipeline de **CI/CD Mobile** utilizando exclusivamente ferramentas **Open Source**. Aqui, o foco não é apenas "rodar testes", mas orquestrar uma defesa focado em segurança mobile android com flutter.
 
-O objetivo é oferecer um **exemplo profissional de pipeline**, útil para profissionais que desejam aprender ou adotar CI/CD seguro para apps Flutter com foco em ferramentas open-source.
+Para validar este pipeline em um cenário realista, foi desenvolvido o **FlutterBank**, um aplicativo de exemplo, simples mas modular, que serve como "Target" (alvo) para as validações de segurança e arquitetura.
+
+O pipeline cobre **todo o ciclo de vida mobile**:  
+**Qualidade → Build → Segurança → Supply Chain → DAST → Deploy**.
 
 ---
 
-# 🛡️ Segurança Aplicada ao Pipeline
+# 🧱 Governança de Engenharia (Qualidade + Padronização)
 
-A pipeline implementa verificações automáticas que cobrem uma parte essencial dos padrões modernos de segurança mobile e supply chain.
+A pipeline implementa controles que garantem qualidade consistente:
 
----
+### ✔ **Formatação e Estilo**
+- `melos run format:check`  
+- Regras obrigatórias para PRs  
+- Fail-fast → PR bloqueado em caso de inconsistência  
 
-# 📌 OWASP Mobile Top 10 (Cobertura Automática via CI/CD)
+### ✔ **Análise Estática Dart & Flutter**
+- `melos run analyze`  
+- Inclui validações recomendadas por OWASP/MASVS
 
-| Risco | O que é analisado | Ferramentas |
-|---|---|---|
-| **M1 – Uso Impróprio da Plataforma** | Manifest, permissões, exported components, debuggable | MobSF + Regras Customizadas |
-| **M2 – Armazenamento Inseguro** | Dados sensíveis, hardcoded secrets, arquivos expostos | MobSF + Binary Secret Scan |
-| **M3 – Comunicação Insegura** | SSL Pinning, TrustManager, cleartext traffic, ataques MITM | mitmproxy + checks customizados |
-| **M4 – Autenticação Insegura** | Análise estática parcial | MobSF |
-| **M5 – Autorização Insegura** | Rotas e endpoints acessíveis (estático) | MobSF |
-| **M6 – Código Inseguro** | API insegura, exceptions, lógica arriscada | MobSF |
-| **M7 – Falhas de Logging** | Side channels, logs sensíveis | MobSF |
-| **M8 – Dependências Vulneráveis** | CVEs em bibliotecas Android e Dart | Trivy + OSV.dev |
-| **M9 – Funcionalidades Expostas** | Segredos, chaves, debug | Gitleaks + Detect-Secrets |
-| **M10 – Extensibilidade Insegura** | Broadcasts/receivers e exports | MobSF |
+### ✔ **Testes Unitários + Cobertura**
+- `melos run test`  
+- Combinação automática de todos os `lcov.info` do monorepo  
+- Geração de relatório HTML  
+- Upload como artefato do PR  
 
-> Importante: cobertura baseada **exclusivamente em ferramentas automáticas de CI/CD para Android**.
-
----
-
-# 📘 MASVS — Mobile Application Security Verification Standard
-
-O pipeline atende principalmente **MASVS-L1** e partes relevantes de **MASVS-L2**, incluindo comunicação, resiliência e cadeia de suprimentos.
-
-| Categoria | Cobertura | Ferramentas |
-|---|---|---|
-| **V1 – Arquitetura & Build** | Manifest seguro, permissões e metadata | MobSF + Custom SAST |
-| **V2 – Armazenamento** | Busca por dados sensíveis | Binary Scan |
-| **V3 – Criptografia** | Crypto insegura (verificação estática) | MobSF |
-| **V5 – Comunicação** | SSL Pinning + DAST | mitmproxy |
-| **V7 – Supply Chain** | Proveniência, SCA e assinaturas | Cosign + OSV + Trivy |
+### ✔ **Gates para Build**
+- PR só passa se:
+  - Code format OK  
+  - Analyze OK  
+  - Tests OK  
+  - Coverage gerado  
+  - Dependências validadas  
 
 ---
 
-# 🔗 Supply Chain Security (SLSA)
+# 🛡 Segurança Automática (SAST · SCA · Secrets · Binary Scan)
 
-| Processo | Cobertura | Ferramentas |
-|---|---|---|
-| **Proveniência** | Build autenticado com OIDC | slsa-framework |
-| **Integridade** | Assinatura e verificação | Cosign |
-| **SCA** | Auditoria de dependências | Trivy + OSV Scanner |
+### 🔐 **Secret Scanning**
+- Detect-Secrets 
+- Gitleaks 
+- Binary Scan (APK/AAB) → detecta chaves no binário
 
----
+### 🔍 **SAST (Análise Estática)**
+- MobSFScan (MASVS ruleset)  
+- Semgrep (Dart + Flutter security ruleset)  
+- MobSF + regras customizadas 
 
-# 🛠️ Ferramentas (Open Source)
+### 📦 **SCA — Análise de Dependências**
+- Trivy (HIGH/CRITICAL enforcement)  
+- OSV.dev Scanner 
+- Dependabot enforcement 
 
-## 🔍 SAST / SCA
-
-| Ferramenta | Função |
-|---|---|
-| **MobSF** | Análise estática da APK/Manifest |
-| **Gitleaks** | Secret scanning no repositório |
-| **Detect-Secrets** | Pre-commit para evitar novos segredos |
-| **Binary Secret Scan** | Busca por segredos no APK compilado |
-| **Trivy** | SCA – vulnerabilidades em libs Android e Dart |
-| **OSV Scanner** | Auditoria de dependências Pub |
-| **Custom SAST (bash)** | Heurísticas avançadas: Pinning, TrustManager, crypto fraca |
+### CodeQL para Kotlin/Java (MSTG-PLATFORM)
 
 ---
 
-## ⚔️ DAST / Enforcement
+# 🔗 Supply Chain Security (SLSA · Cosign · SBOM)
 
-| Ferramenta | Finalidade |
-|---|---|
-| **mitmproxy** | Teste automatizado de MITM + validação de pinning |
-| **OWASP ZAP** | Segurança das APIs externas consumidas pelo app |
-| **Cosign** | Assinatura + verificação de integridade |
-| **Scripts Customizados** | Integração entre MobSF e validações de pinning |
+### ✔ Assinatura OIDC (Keyless) com Cosign  
+Artefatos assinados:
+- AAB  
+- SBOM  
+- Provenance  
+
+### ✔ SBOM (CycloneDX)
+Geração + assinatura automática.
+
+### ✔ Provenance (SLSA-like)
+Inclui:
+- Commit  
+- Builder  
+- Timestamp  
+- GitHub OIDC identity  
+- Bundle de transparência  
+
+### ✔ Enforcement
+- Falha em SCA → pipeline bloqueada  
+- Falha em assinatura → bloqueio  
+- Falha em proveniência → bloqueio  
 
 ---
 
-# 🔒 Gates de Segurança
+# 🧪 DAST Mobile 
 
-| Etapa | Verificação | Gate |
-|---|---|---|
-| **Pre-commit** | Segredos + lint | ❌ Novo segredo = bloqueado |
-| **CI** | SAST + SCA + testes | ❌ HIGH/CRITICAL = bloqueado |
-| **Build Android** | Hardening + MobSF | ❌ Falhas críticas = bloqueado |
-| **DAST** | MITM / SSL Pinning | ❌ Pinning falhou = bloqueado |
-| **Supply Chain** | Cosign + SLSA | ❌ Proveniência inválida = bloqueado |
+### 🔥 **SSL Pinning Validation**
+Executado automaticamente em:
+- Emulador Android otimizado  
+- Certificado MITM injetado em “system trusted”  
+
+### ⚔ **Runtime Bypass Testing **
+- Tentativa de bypass da detecção de root  
 
 ---
 
-# 📱 FlutterBank — App Exemplo
+# 🛰 DAST API (OWASP ZAP)
+- ZAP Full Scan (20+ validações)  
 
-O repositório utiliza este app como alvo da pipeline ( foco é somente um exemplo para o pipeline ) **FlutterBank**, contendo um módulo **PIX (Envio)**.
+---
+
+# 🚀 CD Android (Build + Security)
+
+Durante o workflow de release:
+
+### 🏗 Build
+- Melos Bootstrap  
+- Flutter AAB Release  
+- Geração de universal APK (para DAST)
+
+### 🔐 SAST Avançado por Decompilação
+- bundletool → universal.apks  
+- JADX extraction 
+- Busca automática por vulnerabilidades  
+
+### 🔒 Ofuscação
+- Coleta de `mapping.txt`  
+- Verificação de `minifyEnabled`  
+
+### 📤 Artefatos
+- AAB + signatures  
+- SBOM + signatures  
+- Provenance  
+- Relatórios SAST/DAST  
+- universal.apk  
+
+---
+
+# 📱 FlutterBank — App Alvo do Pipeline
 
 O app demonstra:
 
-- Modularização com **Melos**  
-- Arquitetura limpa aplicada  
-- Gerenciamento com **Riverpod**  
-- Navegação com **GoRouter**  
-- Fluxos com **Command Pattern**
+- Arquitetura limpa (Clean Architecture)  
+- Modularização via Melos  
+- Riverpod  
+- GoRouter  
+- Command Pattern  
+- Fluxo realista (PIX → envio)  
+- Ideal para validar segurança mobile  
 
-![alt text](Screenshot_1763233812-1.png) ![alt text](Screenshot_1763233847.png)
-
-As chamadas externas são simuladas — o objetivo é permitir **testes reais de CI/CD**, sem necessidade de backend.
-
----
 
 # 🗂 Estrutura do Projeto
 
 ```plaintext
 /
 ├── .github/workflows/     # CI/CD completo
-├── pix/                   # App (exemplo) modular
+├── apps/appbank/          # app de exemplo (modular)
+├── pix/                   # package melos de pix (foco do pipeline)
 └── scripts/               # Scripts executados
 
 ```
-
-# ⭐ Destaques Técnicos
-
-- 🛠️ Projeto em desenvolvimento e evolução contínua para aprofundar maturidade de segurança  
-- Pipeline **totalmente automatizada** com foco em segurança mobile  
-- Verificações SAST, DAST e Supply Chain integradas ao fluxo  
-- Cobertura prática dos principais vetores de ataque mobile (OWASP Mobile)  
-- Execução de **MITM automatizado** com validação de SSL Pinning  
-- Builds Android reforçados por **MobSF + regras customizadas**  
-- Segurança aplicada **do commit ao deploy**, com gates por estágio  
-
-
 <br>
+
+<p align="center">
+  <img src="Screenshot_1763233812-1.png" height="350" />
+  <img src="Screenshot_1763233847.png" height="350" />
+</p>
+
+---
+
+# ⭐ Destaques Especiais
+  
+- 🔐 **Pipeline com 30+ validações de segurança**
+- 📊 **Relatórios automáticos** (MobSF, Semgrep, Trivy, ZAP, OSV.dev)
+- ☁ **Proveniência SLSA** + assinatura **keyless** com Cosign
+- 🧩 **SAST tradicional + SAST por decompilação** (bundletool → universal.apk → JADX)  
+  + **DAST com MITM, Frida e Objection**
+- 🛡 **Enforcement real** — PRs, builds e releases são bloqueados em caso de risco
+- 📦 **Artefatos profissionais para auditoria** (SBOM, provenance, signatures, SAST/DAST reports)
+- ⚙ **Automação completa do ciclo mobile** — CI + Security CI + Release + DAST
+
 
 # 💡 Próximos Passos
 
-- Expandir instrumentação para requisitos de **MASVS-L2**  
-- Implementar esteira para **deploy da Play Store** 
- 
+- Inserir o SonarQube/SonarCloud
+- Implementar pipeline para **deploy da Play Store** 
+
+# 📄 Isenção de Responsabilidade
+
+Este projeto é um estudo de caso educacional. Ele demonstra como ferramentas Open Source podem elevar a barra de segurança, mas a proteção de aplicações críticas (como bancos reais) exige camadas adicionais de proteção. Use este repositório como referência para estudos e implementação de DevSecOps.
+
+🚧 Este laboratório está em evolução contínua
+
+<div align="center"> <sub>Desenvolvido com 💙 e ☕ por Alexandre Sato</sub> </div>
+
 
