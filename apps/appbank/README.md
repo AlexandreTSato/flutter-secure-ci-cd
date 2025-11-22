@@ -1,16 +1,26 @@
-# appbank
+# 📱 FlutterBank — App Exemplo
 
-A new Flutter project.
+O repositório utiliza este app como alvo da pipeline ( foco é somente um exemplo para o pipeline ) **FlutterBank**, contendo um módulo **PIX (Envio)**.
 
-## Getting Started
+O app demonstra:
 
-This project is a starting point for a Flutter application.
+- Modularização com **Melos**  
+- Arquitetura limpa aplicada  
+- Gerenciamento com **Riverpod**  
+- Navegação com **GoRouter**  
+- Fluxos com **Command Pattern**
 
-A few resources to get you started if this is your first Flutter project:
+As chamadas externas são simuladas — o objetivo é permitir **testes reais de CI/CD**, sem necessidade de backend.
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
+---
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+# 🗂 Estrutura do Projeto
+
+```plaintext
+/
+├── .github/workflows/     # CI/CD completo
+├── pix/                   # App (exemplo) modular
+└── scripts/               # Scripts executados
+
+```
+

@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:pix/core/errors/failures.dart';
 import 'package:pix/core/results/result.dart';
 import 'package:pix/envio/domain/models/chave_pix.dart';
 import 'package:pix/envio/domain/usercases/submit_amount.dart';
@@ -78,29 +79,6 @@ void main() {
 
   tearDown(() => container.dispose());
 
-  // -----------------------------------------------------------
-  // TESTES
-  // -----------------------------------------------------------
-
-  // test('✅ CPF válido muda estado para success após loading', () async {
-  //   final chavePix = ChavePix(id: 1, email: 'user@pix.com');
-
-  //   when(
-  //     () => mockCpf.call(any()),
-  //   ).thenAnswer((_) async => Result.success(chavePix));
-
-  //   await viewModel.handleCommand(SubmitCpfCommand('44892531090'));
-
-  //   final state = container.read(pixFlowViewModelProvider);
-
-  //   state.maybeWhen(
-  //     success: (chave) => expect(chave.email, equals('user@pix.com')),
-  //     orElse: () => fail('Estado não chegou a success'),
-  //   );
-
-  //   verify(() => mockCpf.call(any())).called(1);
-  // });
-
   test('✅ Sucesso no CPF deve popular o PixSessionProvider', () async {
     // Arrange
     final chavePix = ChavePix(id: 1, email: 'integration@pix.com');
@@ -127,15 +105,25 @@ void main() {
     );
   });
 
-  test('❌ CPF inválido emite SnackBar e não chama usecase', () async {
-    await viewModel.handleCommand(SubmitCpfCommand('123')); // inválido
+  test('❌ CPF inválido emite SnackBar e deixa estado error', () async {
+    // Arrange
+    when(() => mockCpf.call(any())).thenAnswer(
+      (_) async => Result.failure(
+        const ValidationFailure('O CPF deve conter 11 dígitos.'),
+      ),
+    );
 
+    // Act
+    await viewModel.handleCommand(SubmitCpfCommand('123'));
+
+    // Assert 1: UseCase chamado 1x
+    verify(() => mockCpf.call('123')).called(1);
+
+    // Assert 2: estado final é ERROR
     final state = container.read(pixFlowViewModelProvider);
+    expect(state.maybeWhen(error: (_) => true, orElse: () => false), isTrue);
 
-    expect(state.maybeWhen(initial: () => true, orElse: () => false), isTrue);
-
-    verifyNever(() => mockCpf.call(any()));
-
+    // Assert 3: snackbar emitido
     expect(fakeUiEventNotifier.capturedEvents, hasLength(1));
 
     final event = fakeUiEventNotifier.capturedEvents.last as ShowSnackbar;
@@ -162,15 +150,25 @@ void main() {
     verify(() => mockAmount.call(any())).called(1);
   });
 
-  test('❌ Valor inválido emite SnackBar e não chama usecase', () async {
-    await viewModel.handleCommand(SubmitAmountCommand(0.0)); // inválido
+  test('❌ Valor inválido emite SnackBar e deixa estado error', () async {
+    // Arrange: usecase será chamado mas retornará falha
+    when(() => mockAmount.call(any())).thenAnswer(
+      (_) async => Result.failure(
+        const ValidationFailure('O Valor precisa ser maior que zero.'),
+      ),
+    );
 
+    // Act
+    await viewModel.handleCommand(SubmitAmountCommand(0.0));
+
+    // Assert 1: UseCase é chamado uma vez
+    verify(() => mockAmount.call(0.0)).called(1);
+
+    // Assert 2: estado final agora é error()
     final state = container.read(pixFlowViewModelProvider);
+    expect(state.maybeWhen(error: (_) => true, orElse: () => false), isTrue);
 
-    expect(state.maybeWhen(initial: () => true, orElse: () => false), isTrue);
-
-    verifyNever(() => mockAmount.call(any()));
-
+    // Assert 3: snackbar emitido
     expect(fakeUiEventNotifier.capturedEvents.length, 1);
 
     final event = fakeUiEventNotifier.capturedEvents.last as ShowSnackbar;
@@ -178,29 +176,37 @@ void main() {
     expect(event.isError, isTrue);
   });
 
-  // ✅ TESTE CORRIGIDO: Verifica se o estado muda para error, conforme a ViewModel
-  test('💥 Falha de Use Case MUDA estado para error', () async {
-    // arrange: Define a falha do Use Case
-    final errorMessage = 'Falha de serviço';
-    when(
-      () => mockCpf.call(any()),
-    ).thenAnswer((_) async => Result.failure(Exception(errorMessage)));
+  test(
+    '💥 Falha de Use Case MUDA estado para error + exibe snackbar',
+    () async {
+      // arrange
+      final errorMessage = 'Falha de serviço';
 
-    // act
-    await viewModel.handleCommand(SubmitCpfCommand('44892531090'));
+      when(() => mockCpf.call(any())).thenAnswer(
+        (_) async => Result.failure(
+          UnknownFailure(errorMessage), // Uso Failure, não Exception
+        ),
+      );
 
-    // assert:
-    final state = container.read(pixFlowViewModelProvider);
+      // act
+      await viewModel.handleCommand(SubmitCpfCommand('44892531090'));
 
-    // 1. O estado DEVE mudar para error, conforme a ViewModel
-    state.maybeWhen(
-      error: (msg) => expect(msg, contains(errorMessage)),
-      orElse: () => fail('Estado deveria ser error, mas foi $state'),
-    );
+      // assert: estado final é error
+      final state = container.read(pixFlowViewModelProvider);
 
-    // 2. Garante que NENHUM evento de snackbar foi emitido, pois o erro é tratado pelo estado
-    expect(fakeUiEventNotifier.capturedEvents, isEmpty);
-  });
+      state.maybeWhen(
+        error: (msg) => expect(msg, contains(errorMessage)),
+        orElse: () => fail('Estado deveria ser error, mas foi $state'),
+      );
+
+      // assert: um snackbar foi emitido
+      expect(fakeUiEventNotifier.capturedEvents.length, 1);
+
+      final event = fakeUiEventNotifier.capturedEvents.last as ShowSnackbar;
+      expect(event.message, contains(errorMessage));
+      expect(event.isError, isTrue);
+    },
+  );
 
   test('♻️ Reset volta para initial', () {
     viewModel.reset();

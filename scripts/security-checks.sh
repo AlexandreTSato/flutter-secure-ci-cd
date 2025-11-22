@@ -2,22 +2,14 @@
 # security-checks.sh — versão final validada
 # ----------------------------------------------------------------------------------
 # Este script realiza validações SAST avançadas sobre o APK/AAB decompilado,
-# garantindo conformidade com OWASP MASVS, OWASP Mobile Top 10 e requisitos
+# garantindo parte das conformidade com OWASP MASVS, OWASP Mobile Top 10 e requisitos
 # comuns de segurança de apps bancários.
-#
-# Ele NÃO altera o comportamento original do seu script. Apenas adiciona
-# comentários explicativos para desenvolvedores entenderem os objetivos
-# de cada etapa.
-#
-# As métricas, robustez e organização foram preservadas.
-# Nenhuma funcionalidade foi removida ou enfraquecida.
 # ----------------------------------------------------------------------------------
 
 set -euo pipefail
 
 ########################################
 # CONFIGURAÇÃO
-# Variáveis que permitem personalizar o comportamento
 ########################################
 SECURITY_FAIL_ON_CRITICAL="${SECURITY_FAIL_ON_CRITICAL:-true}"
 HIGH_FAIL_THRESHOLD="${HIGH_FAIL_THRESHOLD:-1}"
@@ -32,8 +24,6 @@ mkdir -p "$CI_SUMMARY_DIR"
 
 ########################################
 # MÉTRICAS
-# Essas métricas existiam na revisão e foram mantidas.
-# Elas ajudam desenvolvedores a entender performance do SAST.
 ########################################
 SCRIPT_START_TIME=$(date +%s)
 
@@ -44,8 +34,6 @@ RECOMMEND=0
 
 ########################################
 # EXCLUDES
-# Baseado 100% na sua versão original e ampliado com segurança,
-# sem alterar comportamento do scanner.
 ########################################
 EXCLUDE_DIRS=(
   build
@@ -73,7 +61,6 @@ done
 ########################################
 # safe_grep
 # Função centralizada que garante:
-# - Não quebrar execução
 # - Filtrar arquivos irrelevantes (md, toml, license, etc)
 # - Evitar falsos positivos sem perder segurança real
 ########################################
@@ -114,7 +101,6 @@ ANALYZED_LINES=$(find "$SAST_TMP_DIR" -type f -exec wc -l {} + | awk '{s+=$1} EN
 
 ########################################
 # SECTION CRITICAL
-# Checagens que quebram o build imediatamente por exigência
 # MASVS-L2/MASVS-RESILIENCE e bancos
 ########################################
 SECTION_CRITICAL_START=$(date +%s)
@@ -227,7 +213,7 @@ if safe_grep 'allowBackup="true"' | grep -q .; then
 fi
 
 ########################################
-# 2.4 SSL Pinning — versão idêntica ao seu original
+# 2.4 SSL Pinning 
 # MASVS-NETWORK-1
 ########################################
 PINNING_FOUND="false"

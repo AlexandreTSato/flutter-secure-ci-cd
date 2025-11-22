@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:pix/core/errors/failures.dart';
 import 'package:pix/core/results/result.dart';
 import 'package:pix/envio/domain/models/chave_pix.dart';
 import 'package:pix/envio/domain/usercases/submit_cpf.dart';
@@ -15,17 +16,6 @@ import 'package:pix/pix_providers.dart';
 
 import 'package:pix/pix_routes.dart';
 
-/// 🔄 Um ChangeNotifier que faz o GoRouter reagir a mudanças em um provider.
-/// Use como `refreshListenable` no GoRouter.
-///
-/// Exemplo:
-/// ```dart
-/// final router = GoRouter(
-///   initialLocation: '/',
-///   refreshListenable: RiverpodChangeNotifier(container, pixFlowViewModelProvider),
-///   routes: [...],
-/// );
-/// ```
 class RiverpodChangeNotifier extends ChangeNotifier {
   late final ProviderSubscription _subscription;
 
@@ -127,13 +117,13 @@ void main() {
     );
   });
 
-  testWidgets('❌ Deve exibir erro se CPF for inválido', (
-    WidgetTester tester,
-  ) async {
-    // Caso de uso não deve ser chamado
-    when(
-      () => mockUseCase.call(any()),
-    ).thenAnswer((_) async => Result.failure(Exception('não deve chamar')));
+  testWidgets('❌ Deve exibir erro se CPF for inválido', (tester) async {
+    // Mock: UseCase é chamado e retorna falha de validação
+    when(() => mockUseCase.call(any())).thenAnswer(
+      (_) async => Result.failure(
+        const ValidationFailure('O CPF deve conter 11 dígitos.'),
+      ),
+    );
 
     final container = ProviderContainer(
       overrides: [submitCpfUseCaseProvider.overrideWithValue(mockUseCase)],
@@ -149,9 +139,8 @@ void main() {
         GoRoute(path: '/', builder: (_, _) => const PixHomeView()),
         GoRoute(
           path: '/pix/valor',
-          builder: (_, _) => const Scaffold(
-            body: Center(child: Text('O CPF deve conter 11 dígitos.')),
-          ),
+          builder: (_, _) =>
+              const Scaffold(body: Center(child: Text('VALOR SCREEN'))),
         ),
       ],
     );
@@ -163,18 +152,26 @@ void main() {
       ),
     );
 
-    // Insere CPF inválido
+    // Inserir CPF inválido
     await tester.enterText(find.byType(TextField), '123');
     await tester.tap(find.text('Continuar'));
-    await tester.pump();
 
-    // ✅ Deve mostrar snackbar de erro
+    // Aguarda UI reagir ao event notifier e ao estado (.error)
+    await tester.pump();
+    await tester.pump(
+      const Duration(milliseconds: 300),
+    ); // permite snackbar animar
+
+    // Verifica snackbar
     expect(
-      find.textContaining('O CPF deve conter 11 dígitos.'),
-      findsOneWidget,
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is Text && widget.data == 'O CPF deve conter 11 dígitos.',
+      ),
+      findsWidgets,
     );
 
-    // ✅ Caso de uso não chamado
-    verifyNever(() => mockUseCase.call(any()));
+    // Use Case é chamado exatamente 1 vez
+    verify(() => mockUseCase.call(any())).called(1);
   });
 }

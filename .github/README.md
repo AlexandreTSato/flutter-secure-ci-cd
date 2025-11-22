@@ -39,7 +39,7 @@ Este repositório apresenta um pipeline completo de **CI/CD seguro para Flutter 
 A pipeline cobre:
 
 - Segurança mobile automatizada  
-- Análises SAST, SCA e DAST  
+- Análises SAST e DAST  
 - Supply Chain Security (SLSA + Cosign)  
 - Secret scanning em múltiplas camadas  
 - Build Android com gates de segurança  
