@@ -1,6 +1,6 @@
 ![alt text](image-3.png)
 
-<h1 align="center">🔐 Flutter Secure Pipeline — DevSecOps Mobile </h1>
+<h1 align="center">🔐 Flutter Secure Pipeline</h1>
 
 <p align="center">
   <i>Pipeline completa de CI/CD Seguro para Apps Flutter (Android), alinhada a MASVS, OWASP Mobile e Supply Chain Security.</i><br/>
@@ -214,8 +214,8 @@ O app demonstra:
 <br>
 
 <p align="center">
-  <img src="Screenshot_1763233812-1.png" height="350" />
-  <img src="Screenshot_1763233847.png" height="350" />
+  <img src="Screenshot_home.png" height="350" />
+  <img src="Screenshot_success.png" height="350" />
 </p>
 
 ---
