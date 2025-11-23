@@ -1,4 +1,4 @@
-<!-- ![banner](../images/image-3.png) -->
+![banner](/images/image-3.png)
 
 <h1 align="center">🔐 Flutter Secure Pipeline</h1>
 
@@ -9,7 +9,7 @@
 
 ---
 
-# ⚡ Resumo Executivo
+# ⚡ Resumo 
 
 - 🛡 **30+ validações automáticas de segurança** para apps Flutter (Android)  
 - 📦 Cobertura de **SAST, DAST, SCA, Binary Scan e Supply Chain Security**  
@@ -21,7 +21,7 @@
 
 ---
 
-# 🏅 Badges Profissionais
+# 🏅 Badges 
 
 <p align="center">
 
@@ -235,6 +235,8 @@ O app demonstra:
 # 💡 Próximos Passos
 
 - Inserir o SonarQube/SonarCloud
+- Inserir o lint da Very Good Ventures: very_good_analysis
+  - https://pub.dev/packages/very_good_analysis
 - Implementar pipeline para **deploy da Play Store** 
 
 # 📄 Isenção de Responsabilidade

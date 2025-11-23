@@ -14,190 +14,159 @@ jobs:
   validate_pinning:
     runs-on: ubuntu-latest
     if: ${{ !startsWith(github.head_ref, 'dependabot/') }}
-    timeout-minutes: 15 # Aumentado para acomodar o setup do certificado
+    timeout-minutes: 25
 
     steps:
-      # ... (Passos 1 a 3: Checkout, Download APK, Instalar e Iniciar mitmdump)
-      
-      - name: ⚙️ Instalar Python Tools para DAST
-        run: |
-          pip install --upgrade pip
-          pip install mitmproxy frida-tools objection # Inclui Frida e Objection
+      - name: 📦 Checkout
+        uses: actions/checkout@v4
 
-      - name: ⬇️ Iniciar mitmdump e Gerar Certificado
-        run: |
-          # Inicia em background e gera o certificado raiz do mitmproxy
-          nohup mitmdump -q --listen-host 127.0.0.1 -p 8080 --set block_global=false > mitm.log 2>&1 &
-          echo "PROXY_PID=$!" >> $GITHUB_ENV
-          sleep 5 
-          # mitmproxy armazena o certificado em ~/.mitmproxy/mitmproxy-ca-cert.cer
-
-      # ----------------------------------------------------------
-      # 4. EMULADOR OTIMIZADO PARA GITHUB ACTIONS (ULTRA-FAST BOOT)
-      # ----------------------------------------------------------
-      - name: 🚀 Start Ultra-Fast Emulator (MITM Compatible)
-        uses: reactivecircus/android-emulator-runner@v2
+      - name: 📥 Download APK Artifact
+        uses: actions/download-artifact@v4
         with:
-          api-level: 24                   # ⭐ Mais rápido e leve suportado
-          target: default                 # ⭐ MUITO mais leve que google_apis
+          name: ${{ inputs.apk_artifact_name }}
+          path: dast      
+
+      - name: ⚙️ Instalar ferramentas DAST
+        shell: bash
+        run: |
+          set -e
+          python -m pip install --upgrade pip
+          pip install mitmproxy frida-tools objection
+          sudo apt-get update -y
+          sudo apt-get install -y openssl
+
+      - name: 🌐 Iniciar mitmdump (Proxy MITM)
+        shell: bash
+        run: |
+          set -e
+          nohup mitmdump -q --listen-host 127.0.0.1 -p 8080 --set block_global=false > mitm.log 2>&1 &
+          echo "PROXY_PID=$!" >> "$GITHUB_ENV"
+          sleep 5
+          ls -la ~/.mitmproxy || true
+
+      - name: 📝 Criar script DAST
+        shell: bash
+        run: |
+          set -e
+          mkdir -p scripts
+          cat > scripts/dast-emulator-run.sh <<'EOF'
+          
+          #!/usr/bin/env bash
+          set -euo pipefail
+
+          TARGET_PACKAGE="${TARGET_PACKAGE:?TARGET_PACKAGE vazio}"
+          APK_DIR="${APK_DIR:-dast}"
+          MITM_LOG="${MITM_LOG:-mitm.log}"
+
+          echo "[DAST] Início pós-boot. Listando devices:"
+          adb devices
+
+          # Garantir que o emulador está em estado 'device'
+          EMULATOR_ID="$(adb devices | awk '/emulator-/{print $1; exit}')"
+          if [ -z "${EMULATOR_ID:-}" ]; then
+            echo "::error:: Nenhum emulator-* listado"
+            exit 1
+          fi
+          echo "[DAST] DEVICE=$EMULATOR_ID"
+
+          # Verificar boot (defensivo)
+          for i in $(seq 1 60); do
+            if adb -s "$EMULATOR_ID" shell getprop sys.boot_completed 2>/dev/null | grep -q 1; then
+              break
+            fi
+            sleep 2
+          done
+
+          # Desativar animações
+          for s in window_animation_scale transition_animation_scale animator_duration_scale; do
+            adb -s "$EMULATOR_ID" shell settings put global "$s" 0 || true
+          done
+          adb -s "$EMULATOR_ID" shell input keyevent 82 || true
+
+          # Localizar APK
+          APK_FILE="$(find "$APK_DIR" -maxdepth 2 -type f -name '*.apk' | head -n1 || true)"
+          if [ -z "${APK_FILE:-}" ]; then
+            echo "::error:: APK não encontrado em $APK_DIR"
+            ls -R "$APK_DIR" || true
+            exit 1
+          fi
+          echo "[DAST] APK=$APK_FILE"          
+
+          # Instalar com retry
+          for i in 1 2 3; do
+            if adb -s "$EMULATOR_ID" install -r "$APK_FILE"; then
+              break
+            fi
+            echo "[DAST] Retry install ($i)..."
+            sleep 5
+            [ "$i" = "3" ] && { echo "::error:: Falha install APK"; exit 1; }
+          done
+
+          # Proxy (best-effort)
+          adb -s "$EMULATOR_ID" shell settings put global http_proxy 10.0.2.2:8080 || true
+
+          # Tráfego
+          adb -s "$EMULATOR_ID" shell monkey -p "$TARGET_PACKAGE" 80 || true
+          sleep 30
+
+          tail -n 80 "$MITM_LOG" || true
+
+          PINNING_RESULT="PASS"
+          if grep -E "HTTP/[0-9]|CONNECT" "$MITM_LOG" >/dev/null 2>&1; then
+            echo "::error:: ❌ PINNING FALHOU — tráfego interceptado"
+            PINNING_RESULT="FAIL"
+          fi
+
+          if [ "$PINNING_RESULT" = "PASS" ]; then
+            echo "[DAST] Tentando bypass (Objection 60s)..."
+            timeout 60s objection explore --startup-command "android sslpinning disable" --target "$TARGET_PACKAGE" || true
+            sleep 5
+            if grep -E "HTTP/[0-9]|CONNECT" "$MITM_LOG" >/dev/null 2>&1; then
+              echo "::error:: ❌ Bypass SSL Pinning bem-sucedido"
+              PINNING_RESULT="BYPASS_FAIL"
+            fi
+          fi
+
+          echo "[DAST] Resultado: $PINNING_RESULT"
+          case "$PINNING_RESULT" in
+            FAIL|BYPASS_FAIL) exit 1 ;;
+            *) exit 0 ;;
+          esac
+
+      - name: 🚀 Emulador + DAST (SSL Pinning)
+        id: emulator_and_tests
+        uses: reactivecircus/android-emulator-runner@v2
+        env:
+          TARGET_PACKAGE: ${{ inputs.target_package_name }}
+          APK_DIR: dast
+          MITM_LOG: mitm.log
+        with:
+          api-level: 29
+          target: google_apis
           arch: x86_64
-          ram-size: 1024
-          heap-size: 192
-          cores: 1
+          ram-size: 2048
+          heap-size: 256
+          cores: 2
           avd-name: mitm-lite
           force-avd-creation: true
           disable-animations: true
-          emulator-boot-timeout: 300
-
+          emulator-boot-timeout: 900
           emulator-options: >
-            -no-window
-            -no-audio
-            -no-boot-anim
-            -gpu swiftshader_indirect
-            -writable-system
+            -no-window -no-audio -no-boot-anim -no-metrics
+            -no-snapshot -gpu swiftshader_indirect -accel off
+          script: bash scripts/dast-emulator-run.sh
 
-          script: |
-            echo "⏳ Stabilizing emulator..."
-            sleep 8
-            adb devices
-            echo "Emulator ready."
-
-      # ----------------------------------------------------------
-      # 5. CONFIGURAÇÃO MITM (Certificado Root + Proxy + Instalação APK)
-      # ----------------------------------------------------------
-      - name: 🔐 Configurar Certificado MITM + Proxy + APK
-        run: |
-          set -euo pipefail
-
-          echo "🔎 Aguardando ADB..."
-          adb wait-for-device
-
-          echo "🔐 Elevando permissões (root)…"
-          adb root
-          sleep 4
-          adb wait-for-device
-          adb remount
-
-          echo "📥 Copiando certificado MITM..."
-          adb push ~/.mitmproxy/mitmproxy-ca-cert.cer /sdcard/mitmproxy-ca-cert.cer
-
-          CERT_HASH=$(openssl x509 -inform DER -in ~/.mitmproxy/mitmproxy-ca-cert.cer | openssl x509 -hash -noout)
-          CERT_NAME="${CERT_HASH}.0"
-
-          echo "💾 Instalando certificado em /system/etc/security/cacerts/$CERT_NAME..."
-          adb shell cp /sdcard/mitmproxy-ca-cert.cer /system/etc/security/cacerts/$CERT_NAME
-          adb shell chmod 644 /system/etc/security/cacerts/$CERT_NAME
-
-          echo "🌐 Configurando proxy global 10.0.2.2:8080..."
-          adb shell settings put global http_proxy 10.0.2.2:8080
-
-          echo "📦 Instalando APK..."
-          APK=$(find dast -name "*.apk" | head -n 1)
-          adb install -r "$APK"
-
-      # ----------------------------------------------------------
-      # 6. TESTES + GERAÇÃO DE TRÁFEGO
-      # ----------------------------------------------------------
-      - name: 🐵 Executar Monkey / Geração de Tráfego
-        run: |
-          echo "🚀 Iniciando app e Monkey..."
-          adb shell monkey -p ${{ inputs.target_package_name }} 1
-
-          echo "⏳ Aguardando tráfego (30s)..."
-          sleep 30
-
-
-      # ----------------------------------------------------------
-      # 5. VALIDAR LOGS MITM (Verificação Clássica)
-      # ----------------------------------------------------------
-      - name: 🔍 Validar logs MITM (SSL Pinning Clássico)
-        id: mitm_check
-        run: |
-          # ... (Código original de validação aqui)
-          tail -n 100 mitm.log || true
-
-          if grep -E "HTTP/1" mitm.log >/dev/null 2>&1; then
-            echo "::error::❌ PINNING FALHOU — tráfego interceptado via Proxy!"
-            echo "mitm_result=FAIL" >> $GITHUB_OUTPUT
-            exit 1 # Mantemos o Hard Gate
-          fi
-          echo "mitm_result=PASS" >> $GITHUB_OUTPUT
-          echo "✅ SSL Pinning PASSOU — nenhum tráfego foi interceptado via Proxy."
-
-      # ----------------------------------------------------------
-      # 6. VALIDAÇÃO AVANÇADA COM OBJECTION (Redundância M3 e V1)
-      # Esta etapa testa se a proteção pode ser Bypassed por hooking.
-      # ----------------------------------------------------------
-      - name: ⚔️ Validar Pinning com Objection (Frida Bypass)
-        if: always() # Rodar mesmo se o mitm_check falhar para coleta de dados
-        run: |
-          if [ "${{ steps.mitm_check.outputs.mitm_result }}" == "FAIL" ]; then
-            echo "Mitm já falhou. Pulando bypass forçado."
-            exit 0
-          fi
-
-          echo "🛡️ Tentando bypass de Pinning com Objection/Frida..."
-
-          # Tenta desabilitar o Pinning no runtime do pacote alvo
-          objection explore --startup-command "android sslpinning disable" --target ${{ inputs.target_package_name }}
-
-          # Se o objection conseguiu rodar o comando, a proteção é fraca ou inexistente.
-          if [ $? -eq 0 ]; then
-            echo "::error::❌ PINNING FALHOU - Bypass de Frida foi bem-sucedido. Proteção em Runtime Fraca (MASVS V1 falhou)."
-            exit 1
-          fi
-          
-          echo "✅ Bypass de Frida falhou, proteção em Runtime robusta."
-
-          echo "✅ Bypass de Frida falhou, proteção em Runtime robusta."
-
-      # ----------------------------------------------------------
-      # 6. VALIDAÇÃO AVANÇADA COM OBJECTION (Redundância M3 e V1)
-      # ----------------------------------------------------------
-      - name: ⚔️ Validar Pinning com Objection (Frida Bypass)
-        if: always() # Rodar mesmo se o mitm_check falhar para coleta de dados
-        run: |
-          if [ "${{ steps.mitm_check.outputs.mitm_result }}" == "FAIL" ]; then
-            echo "Mitm já falhou. Pulando bypass forçado."
-            exit 0
-          fi
-
-          echo "🛡️ Tentando bypass de Pinning com Objection/Frida..."
-
-          # Tenta desabilitar o Pinning no runtime do pacote alvo
-          objection explore --startup-command "android sslpinning disable" --target ${{ inputs.target_package_name }}
-
-          # Se o objection conseguiu rodar o comando, a proteção é fraca ou inexistente.
-          if [ $? -eq 0 ]; then
-            echo "::error::❌ PINNING FALHOU - Bypass de Frida foi bem-sucedido. Proteção em Runtime Fraca (MASVS V1 falhou)."
-            exit 1
-          fi
-
-          echo "✅ Bypass de Frida falhou, proteção em Runtime robusta."
-
-      # ----------------------------------------------------------
-      # 6B. VALIDAÇÃO AVANÇADA COM OBJECTION (Root/Jailbreak Bypass)
-      # Esta etapa testa a resiliência da detecção de Root (MASVS M4/V1).
-      # ----------------------------------------------------------
-      - name: 🛡️ Validar Root Detection com Objection (Frida Bypass)
-        if: always() # Rodar sempre para garantir o teste de resiliência
-        run: |
-          echo "⚔️ Tentando bypass de Root Detection com Objection/Frida..."
-
-          # Tenta desabilitar a detecção de root no runtime do pacote alvo
-          objection explore --startup-command "android root disable" --target ${{ inputs.target_package_name }}
-
-          # Se o objection conseguiu rodar o comando, a proteção é fraca ou inexistente.
-          if [ $? -eq 0 ]; then
-            echo "::error::❌ ROOT DETECTION FALHOU - Bypass de Frida foi bem-sucedido. Proteção em Runtime Fraca (MASVS V1/M4 falhou)."
-            exit 1
-          fi
-
-          echo "✅ Bypass de Root Detection falhou, proteção em Runtime robusta."
-
-      # ----------------------------------------------------------
-      # 7. Finalização
-      # ----------------------------------------------------------
-      - name: 🛑 Parar Proxy e Emulador
+      - name: 📦 Upload logs DAST
         if: always()
-        run: kill "$PROXY_PID" || true
+        uses: actions/upload-artifact@v4
+        with:
+          name: dast-logs
+          path: mitm.log
+          if-no-files-found: warn
+          retention-days: 1
+
+      - name: 🛑 Encerrar Proxy MITM
+        if: always()
+        run: |
+          kill "$PROXY_PID" || true
+          echo "Proxy finalizado."

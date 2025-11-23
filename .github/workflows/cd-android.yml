@@ -250,8 +250,8 @@ jobs:
     - name: 🧩 Gerar SBOM (CycloneDX)
       working-directory: ${{ env.APP_DIR }}
       run: |
-        # Gera SBOM com Trivy em formato CycloneDX. Mantemos WARN se não houver dependências.
-        trivy fs . --security-checks vuln,license --format cyclonedx -o sbom.json || true
+        # Gera SBOM com Trivy em formato CycloneDX. Mantemos WARN se não houver dependências.        
+        trivy fs . --security-checks vuln,license --format cyclonedx -o sbom.json
 
     - name: 🔏 Assinar SBOM com Cosign
       working-directory: ${{ env.APP_DIR }}
@@ -457,14 +457,44 @@ jobs:
     # ============================================================
     # 1️⃣2️⃣ SECURITY CHECKS CUSTOMIZADOS
     # ============================================================
-    - name: 🛡️ Executar scripts do security-checks.sh
+    - name: 🛡️🛡️🛡️ Executar scripts do security-checks.sh 🛡️🛡️🛡️
+      shell: bash
       run: |
-        if [ -f ./scripts/security-checks.sh ]; then
-          chmod +x scripts/security-checks.sh
-          ./scripts/security-checks.sh
-        else
-          echo "⚠️ scripts/security-checks.sh não encontrado — skip."
+        set -euo pipefail
+
+        if [ ! -f ./scripts/security-checks.sh ]; then
+          echo "⚠️ scripts/security-checks.sh não encontrado — abortando."
+          exit 1
         fi
+
+        chmod +x scripts/security-checks.sh
+
+        # executa o script mas NÃO sai imediatamente para que possamos capturar logs
+        set +e
+        ./scripts/security-checks.sh
+        EXIT_CODE=$?
+        set -e
+
+        if [ $EXIT_CODE -ne 0 ]; then
+          echo "❌ scripts/security-checks.sh retornou código de saída: $EXIT_CODE"
+          echo "📁 Listagem de arquivos relevantes (sast_reports / artifacts):"
+          ls -la sast_reports || true
+          ls -la artifacts || true
+
+          echo "📝 Últimas linhas dos relatórios SAST (até 200 linhas por arquivo):"
+          for f in sast_reports/*; do
+            if [ -f "$f" ]; then
+              echo "----- $f -----"
+              tail -n 200 "$f" || true
+            fi
+          done
+
+          echo "🔍 Se preferir, abra os logs completos no GitHub Actions (step logs)."
+          # repropaga o erro para falhar o job (com motivo visível)
+          exit $EXIT_CODE
+        fi
+
+        echo "✅ scripts/security-checks.sh finalizou com sucesso (exit 0)."
 
 
     # ============================================================
@@ -472,25 +502,101 @@ jobs:
     # ============================================================
     - name: Instalar MobSFScan
       run: |
-        python3 -m venv venv
-        source venv/bin/activate
-        pip install mobsfscan || true
+        set -e
+        echo "📦 Instalando MobSFScan e dependências..."
+        python -m pip install --upgrade pip
+        pip install --upgrade mobsfscan jq || {
+          echo "::error::❌ Falha ao instalar MobSFScan."
+          exit 1
+        }
+        echo "✔️ MobSFScan versão:"
+        mobsfscan -v || true
 
+    # ============================================================
+    # Execução (quebra só em CRITICAL/HIGH)
+    # v0.4.5: precisa rodar separadamente --json e --sarif
+    # ============================================================
     - name: Executar MobSFScan
+      id: mobsf-scan
+      shell: bash
       run: |
-        source venv/bin/activate || true
-        if [ -f "${{ env.APP_DIR }}/build/app/outputs/bundle/release/app-release.aab" ]; then
-          mobsfscan --json -o mobsf.json "${{ env.APP_DIR }}/build/app/outputs/bundle/release/app-release.aab" || true
+        set -euo pipefail
+
+        CUSTOM_RULES_PATH="./mobsf_custom_rules.yaml"
+        APK_UNIVERSAL="sast_tmp/app-universal.apk"
+        APK_RELEASE="${APP_DIR}/build/app/outputs/flutter-apk/app-release.apk"
+        AAB_PATH="${APP_DIR}/build/app/outputs/bundle/release/app-release.aab"
+
+        if [ -f "$APK_UNIVERSAL" ]; then
+          SCAN_TARGET="$APK_UNIVERSAL"
+        elif [ -f "$APK_RELEASE" ]; then
+          SCAN_TARGET="$APK_RELEASE"
+        elif [ -f "$AAB_PATH" ]; then
+          echo "⚠️ Usando AAB (suporte limitado). Preferir APK universal."
+          SCAN_TARGET="$AAB_PATH"
         else
-          echo "⚠️ AAB não encontrado para MobSFScan — skip."
+          echo "❌ Nenhum APK/AAB encontrado para scan."
+          ls -la "${APP_DIR}/build/app/outputs" || true
+          exit 1
         fi
+
+        echo "🔎 Target MobSFScan: $SCAN_TARGET"
+
+        CONFIG_ARG=()
+        if [ -f "$CUSTOM_RULES_PATH" ]; then
+          echo "✔️ Regras custom: $CUSTOM_RULES_PATH"
+          CONFIG_ARG+=(--config "$CUSTOM_RULES_PATH")
+        else
+          echo "⚠️ Regras custom ausentes (usando padrão)."
+        fi
+
+        # Execução JSON (v0.4.5: uma saída por vez)
+        set +e
+        mobsfscan --json -o mobsfscan-report.json "${CONFIG_ARG[@]}" "$SCAN_TARGET"
+        EXIT_JSON=$?
+        set -e
+
+        if [ $EXIT_JSON -ne 0 ]; then
+          echo "⚠️ mobsfscan (JSON) retornou código $EXIT_JSON"
+        fi
+        if [ ! -f mobsfscan-report.json ]; then
+          echo "::error::❌ mobsfscan-report.json não gerado."
+          ls -la .
+          exit 1
+        fi
+
+        # Execução SARIF opcional
+        set +e
+        mobsfscan --sarif -o mobsfscan-report.sarif "${CONFIG_ARG[@]}" "$SCAN_TARGET"
+        EXIT_SARIF=$?
+        set -e
+        [ $EXIT_SARIF -ne 0 ] && echo "⚠️ mobsfscan (SARIF) falhou (tolerado)."
+
+        echo "📊 Processando severidades..."
+        CRITICAL_COUNT=$(jq '[.issues? // .results? | .[] | select(.severity=="CRITICAL")] | length' mobsfscan-report.json)
+        HIGH_COUNT=$(jq '[.issues? // .results? | .[] | select(.severity=="HIGH")] | length' mobsfscan-report.json)
+
+        echo "────────────────────────────────────────"
+        echo " MobSFScan Summary"
+        echo " CRITICAL: $CRITICAL_COUNT"
+        echo " HIGH:     $HIGH_COUNT"
+        echo "────────────────────────────────────────"
+
+        if [ "$CRITICAL_COUNT" -gt 0 ] || [ "$HIGH_COUNT" -gt 0 ]; then
+          echo "::error::🚨 MobSFScan encontrou vulnerabilidades CRITICAL/HIGH."
+          exit 1
+        fi
+
+        echo "✅ Nenhuma CRITICAL/HIGH detectada."
 
     - name: Upload MobSF reports
       uses: actions/upload-artifact@v4
       with:
         name: mobsf
-        path: mobsf.json
-        retention-days: 7
+        path: |
+          mobsfscan-report.json
+          mobsfscan-report.sarif
+        retention-days: 3
         if-no-files-found: warn
 
 
