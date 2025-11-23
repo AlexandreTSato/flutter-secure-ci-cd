@@ -1,4 +1,4 @@
-![alt text](image-3.png)
+![banner](../images/image-3.png)
 
 <h1 align="center">🔐 Flutter Secure Pipeline</h1>
 
@@ -214,8 +214,8 @@ O app demonstra:
 <br>
 
 <p align="center">
-  <img src="Screenshot_home.png" height="350" />
-  <img src="Screenshot_success.png" height="350" />
+  <img src="../images/Screenshot_home.png" height="350" />
+  <img src="../images/Screenshot_success.png" height="350" />
 </p>
 
 ---
