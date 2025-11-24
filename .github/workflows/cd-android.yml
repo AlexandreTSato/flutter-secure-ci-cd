@@ -729,6 +729,78 @@ jobs:
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
 
+    - name: 🧾 RESUMO EXECUTIVO (Badges)
+      if: always()
+      run: |
+        {
+          echo "# 🚀 RESUMO FINAL DO PIPELINE ANDROID"
+          echo ""
+          echo "## ✅ Etapas Executadas"
+          echo "- ⬇️ Checkout & Setup Flutter/Melos"
+          echo "- ♻️ Caches (Pub / Dart Tool / Gradle / pip)"
+          echo "- 🔍 Semgrep SAST"
+          echo "- 🏗️ Build Release (AAB)"
+          echo "- 🔐 Cosign Sign + Verify"
+          echo "- 📤 Upload AAB Assinado"
+          echo "- 🧩 SBOM (CycloneDX) + Assinatura"
+          echo "- 🧬 Provenance + Assinatura"
+          echo "- 🗺️ mapping.txt (R8/ProGuard)"
+          echo "- 🔍 Decompilação (bundletool → universal.apk → JADX)"
+          echo "- 📄 Relatórios SAST (ssl.txt / ssl_more.txt)"
+          echo "- 📦 APK Universal para DAST"
+          echo "- 🛡️ security-checks.sh (checks customizados)"
+          echo "- 📱 MobSFScan (CRITICAL/HIGH gate)"
+          echo "- 🏷️ Tag automática (se branch release/*)"
+          echo ""
+          if [ "${{ job.status }}" = "success" ]; then
+            echo "## 🟢 Status Final: **SUCESSO TOTAL**"
+            echo "![success](https://img.shields.io/badge/Android%20CD-Sucesso-brightgreen?style=for-the-badge&logo=android)"
+          else
+            echo "## 🔴 Status Final: **FALHA NO PIPELINE**"
+            echo "![fail](https://img.shields.io/badge/Android%20CD-Falhou-red?style=for-the-badge&logo=android)"
+          fi
+          echo ""
+          echo "## 📌 Contexto"
+          echo "- Workflow: ${{ github.workflow }}"
+          echo "- Branch/Ref: ${{ github.ref_name }}"
+          echo "- Commit: ${{ github.sha }}"
+          echo "- Actor: ${{ github.actor }}"
+          echo ""
+          echo "## 📦 Artefatos Principais"
+          if [ -f "${{ env.APP_DIR }}/build/app/outputs/bundle/release/app-release.aab" ]; then
+            echo "- AAB: OK"
+          else
+            echo "- AAB: NÃO GERADO"
+          fi
+          if [ -f "${{ env.APP_DIR }}/provenance.json" ]; then
+            echo "- Provenance: OK"
+          else
+            echo "- Provenance: AUSENTE"
+          fi
+          if [ -f "${{ env.APP_DIR }}/sbom.json" ]; then
+            echo "- SBOM: OK"
+          else
+            echo "- SBOM: AUSENTE"
+          fi
+          if [ -f "sast_tmp/app-universal.apk" ]; then
+            echo "- APK Universal (DAST): OK"
+          else
+            echo "- APK Universal (DAST): AUSENTE"
+          fi
+          if [ -f "artifacts/mapping.txt" ]; then
+            echo "- mapping.txt: OK"
+          else
+            echo "- mapping.txt: AUSENTE"
+          fi
+          echo ""
+          echo "## 🔐 Assinaturas"
+          ls -1 "${{ env.APP_DIR }}"/*.sig 2>/dev/null || echo "Sem *.sig"
+          echo ""
+          echo "## 🛡️ Observações"
+          echo "- Verifique MobSFScan para vulnerabilidades não bloqueantes (LOW/MEDIUM)."
+          echo "- Use o APK universal no workflow DAST para validar SSL Pinning."
+        } >> "$GITHUB_STEP_SUMMARY"
+
 
   # ============================================================
   # 🔄 JOB SEPARADO: DAST (SSL Pinning)

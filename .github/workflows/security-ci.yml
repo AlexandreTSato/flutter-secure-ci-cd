@@ -313,21 +313,71 @@ jobs:
           printf "🐙 Dependabot Alerts:        %s\n" "${{ steps.dependabot.outputs.status || 'N/A' }}"
           echo "────────────────────────────────────────"
 
-      # ---------------------------------------------------------------------------
-      # 13) Enforcement Final — Se algo crítico falhou, CI falha
-      # ---------------------------------------------------------------------------
+      - name: 🧾 Resumo Final do Pipeline de Segurança
+        if: always()
+        run: |
+          {
+            echo "# 🔐 RESUMO FINAL - SECURITY PIPELINE"
+            echo ""
+            echo "## ✅ Etapas Executadas"
+            echo "- 🧠 Secret Scan (detect-secrets)"
+            echo "- 🔐 Gitleaks"
+            echo "- 📱 MobSFScan (SAST/MASVS)"
+            echo "- 🧮 Binary Secrets Scan (APK/AAB)"
+            echo "- 🧩 Trivy (SCA)"
+            echo "- 🐙 Dependabot Alerts"
+            echo "- 🧪 CodeQL (Android nativo, se presente)"
+            echo ""
+            # Determinar status agregado (falha se flags de dependabot/trivy existirem ou algum step marcou FAILED)
+            TRIVY_FLAG=0
+            DEP_FLAG=0
+            [ -f trivy-failed.flag ] && TRIVY_FLAG=1
+            [ -f dependabot-failed.flag ] && DEP_FLAG=1
+
+            FAILED=0
+            for S in "${{ steps.secrets-scan.outputs.status }}" \
+                     "${{ steps.gitleaks.outputs.status }}" \
+                     "${{ steps.mobsf.outputs.status }}" \
+                     "${{ steps.binary-scan.outputs.status }}" \
+                     "${{ steps.trivy.outputs.status }}" \
+                     "${{ steps.dependabot.outputs.status }}"; do
+              echo "$S" | grep -q "FAILED" && FAILED=1
+            done
+
+            if [ $TRIVY_FLAG -eq 1 ] || [ $DEP_FLAG -eq 1 ] || [ $FAILED -eq 1 ]; then
+              echo "## 🔴 Status Final: **FALHA NA PIPELINE DE SEGURANÇA**"
+              echo "![fail](https://img.shields.io/badge/Security-Falhou-red?style=for-the-badge&logo=github)"
+            else
+              echo "## 🟢 Status Final: **SUCESSO TOTAL**"
+              echo "![success](https://img.shields.io/badge/Security-Sucesso-brightgreen?style=for-the-badge&logo=github)"
+            fi
+            echo ""
+            echo "## 📌 Contexto"
+            echo "- Branch: ${{ github.ref_name }}"
+            echo "- Actor: ${{ github.actor }}"
+            echo "- Workflow: ${{ github.workflow }}"
+            echo ""
+            echo "## 📈 Detalhes"
+            echo "- Secrets: ${{ steps.secrets-scan.outputs.status || 'N/A' }}"
+            echo "- Gitleaks: ${{ steps.gitleaks.outputs.status || 'N/A' }}"
+            echo "- MobSFScan: ${{ steps.mobsf.outputs.status || 'N/A' }}"
+            echo "- Binary Scan: ${{ steps.binary-scan.outputs.status || 'N/A' }}"
+            echo "- Trivy: ${{ steps.trivy.outputs.status || 'N/A' }}"
+            echo "- Dependabot: ${{ steps.dependabot.outputs.status || 'N/A' }}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: 🚨 ENFORCEMENT — Se falhar em SCA, bloquear PR/merge
         if: always()
         run: |
           TRIVY=0
-          DEP=0
+            DEP=0
 
-          if [ -f trivy-failed.flag ]; then TRIVY=1; fi
-          if [ -f dependabot-failed.flag ]; then DEP=1; fi
+            if [ -f trivy-failed.flag ]; then TRIVY=1; fi
+            if [ -f dependabot-failed.flag ]; then DEP=1; fi
 
-          if [ "$TRIVY" -eq 1 ] || [ "$DEP" -eq 1 ]; then
-            echo "🚫 Segurança CRÍTICA — bloqueando."
-            exit 1
-          fi
+            if [ "$TRIVY" -eq 1 ] || [ "$DEP" -eq 1 ]; then
+              echo "🚫 Segurança CRÍTICA — bloqueando."
+              exit 1
+            fi
 
-          echo "✅ Nenhuma vulnerabilidade crítica encontrada."
+            echo "✅ Nenhuma vulnerabilidade crítica encontrada."

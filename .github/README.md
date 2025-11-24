@@ -1,4 +1,4 @@
-![banner](/images/image-3.png)
+<!-- ![banner](/images/image-3.png) -->
 
 <h1 align="center">🔐 Flutter Secure Pipeline</h1>
 
