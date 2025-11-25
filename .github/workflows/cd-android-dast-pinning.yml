@@ -1,4 +1,4 @@
-name: DAST - SSL Pinning Validation
+name: DAST
 
 on:
   workflow_call:
@@ -9,6 +9,10 @@ on:
       target_package_name:
         required: true
         type: string
+
+concurrency:
+  group: cd-android-dast-pinning-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   validate_pinning:

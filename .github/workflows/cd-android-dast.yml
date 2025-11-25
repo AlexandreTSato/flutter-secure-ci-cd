@@ -20,10 +20,11 @@ on:
         options:
           - full
           - baseline
+          
 
   # 2. Gatilho Automatizado: Roda após o workflow de deploy ser concluído com sucesso
   workflow_run:
-    workflows: ["BUILD ANDROID RELEASE"] 
+    workflows: ["BUILD ANDROID"] 
     types: 
       - completed
       

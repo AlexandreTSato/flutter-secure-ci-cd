@@ -2,9 +2,9 @@ name: CI - QUALIDADE
 
 on:
   pull_request:
-    branches: [main, develop]
+    branches: [ develop ]
   push:
-    branches: [main, develop]
+    branches: [ develop ]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -17,9 +17,10 @@ jobs:
   setup:
     runs-on: ubuntu-latest
     if: ${{ !startsWith(github.head_ref, 'dependabot/') }}
-    timeout-minutes: 20
+    timeout-minutes: 10
     outputs:
-      cache-hit: ${{ steps.cache.outputs.cache-hit }}
+      cache-hit: ${{ steps.cache.outputs.cache-hit }}      
+      tags: ${{ steps.detect_tag.outputs.tags }}
 
     steps:
       - name: ⬇️ Checkout (completo)
@@ -28,6 +29,15 @@ jobs:
           fetch-depth: 0
           submodules: recursive
           lfs: true
+
+      - name: Garantir fetch das tags
+        run: git fetch --tags
+
+      - name: Detectar tag associada ao commit
+        id: detect_tag
+        run: |
+          TAGS=$(git tag --points-at HEAD)
+          echo "tags=$TAGS" >> $GITHUB_OUTPUT
 
       - name: 🔐 Secret Scan (detect-secrets)
         run: |
@@ -40,7 +50,7 @@ jobs:
             exit 1
           fi
 
-      - name: ⚙️ Setup-env (Flutter + Melos + cache) 
+      - name: ⚙️ Setup-env (Flutter + Melos + cache)
         uses: ./.github/actions/setup-env
 
       # Conditional cleanup if Flutter version changed (keeps cache healthy)
@@ -184,18 +194,16 @@ jobs:
         with:
           name: relatorio-cobertura-flutter
           path: coverage/html
-          retention-days: 7
+          retention-days: 1
 
   # ============================================================
   # 4) BUILD + OSV SCAN
   # ============================================================
   verificacao_build:
-    needs: [analise_e_formato, testes_unidade]
+    needs: [setup, analise_e_formato, testes_unidade]
     runs-on: ubuntu-latest
-    if: >
-      (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'))
-      ||
-      (github.event_name == 'pull_request' && (github.base_ref == 'main' || github.base_ref == 'develop'))
+    
+    if: contains(needs.setup.outputs.tags, 'complete')  
 
     steps:
       - name: ⬇️ Checkout
@@ -288,6 +296,15 @@ jobs:
       - name: 🏗️ Build final (debug)
         run: melos run build_app
 
+  summary:
+    needs: [verificacao_build]
+    runs-on: ubuntu-latest
+    if: >
+      (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'))
+      ||
+      (github.event_name == 'pull_request' && (github.base_ref == 'main' || github.base_ref == 'develop'))
+
+    steps:
       # ==================================================
       # GitHub Summary + Badges (sempre executa)
       # ==================================================

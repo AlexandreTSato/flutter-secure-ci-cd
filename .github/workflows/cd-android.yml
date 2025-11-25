@@ -1,4 +1,4 @@
-name: BUILD ANDROID RELEASE
+name: BUILD ANDROID
 # ⚠️ AVISO IMPORTANTE:
 # NÃO ALTERAR O "name" DO WORKFLOW SEM ATUALIZAR OS WORKFLOWS QUE O REFERENCIAM!
 
@@ -24,12 +24,15 @@ name: BUILD ANDROID RELEASE
 # - Supply Chain Security (SLSA / Sigstore / Cosign)
 # ===============================================================
 
+# on:
+#   push:
+#     branches:
+#       - "release/**"
+#     tags:
+#       - "v*"
 on:
-  push:
-    branches:
-      - "release/**"
-    tags:
-      - "v*"
+  pull_request:
+    branches: [ homolog ]
   workflow_dispatch:
 
 permissions:
@@ -42,13 +45,12 @@ concurrency:
   group: cd-android-${{ github.ref }}
   cancel-in-progress: true
 
-
 jobs:
   build_release_android:
     name: "CD Android • Build + SAST + Sign + SBOM + Provenance"
     runs-on: ubuntu-latest
     if: ${{ !startsWith(github.head_ref, 'dependabot/') }}
-    timeout-minutes: 10
+    timeout-minutes: 20
 
     env:
       APP_DIR: apps/appbank

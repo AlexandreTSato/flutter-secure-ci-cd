@@ -4,7 +4,7 @@ on:
   workflow_run:
     workflows: ["CD ANDROID DAST"] 
     types: 
-      - completed
+      - completed      
       
 permissions:
   contents: read
