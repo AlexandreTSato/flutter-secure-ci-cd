@@ -70,7 +70,7 @@ jobs:
           echo "auth_token=$AUTH_TOKEN" >> $GITHUB_OUTPUT
           
       - name: 💥 Rodar ZAP Full Scan (Foco M3/M5 com Token)
-        uses: zaproxy/action-full-scan@v0.12.0
+        uses: zaproxy/action-full-scan@v0.13.0
         with:
           target: ${{ steps.params.outputs.target_url }}
           
