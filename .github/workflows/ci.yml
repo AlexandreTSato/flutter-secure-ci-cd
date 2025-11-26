@@ -209,7 +209,7 @@ jobs:
         run: genhtml coverage/lcov_formatted.info -o coverage/html --ignore-errors source --synthesize-missing
 
       - name: ⬆️ Upload do Relatório HTML (Artefato)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: relatorio-cobertura-flutter
           path: coverage/html
@@ -296,7 +296,7 @@ jobs:
           echo '```' >> osv_report.md
 
       - name: ⬆️ Upload OSV artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: osv-report
           path: |
@@ -378,7 +378,7 @@ jobs:
 
       - name: 📂 Upload Dependabot Alerts (artefato)
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: dependabot-alerts
           path: dependabot-alerts.json

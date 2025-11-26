@@ -266,7 +266,7 @@ jobs:
         ls -la "${{ env.APP_DIR }}" | grep -E '\.sig$|\.bundle.json$' || true
 
     - name: 📤 Upload signed AAB artifacts
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v5
       with:
         name: signed-aab
         path: |
@@ -309,7 +309,7 @@ jobs:
         fi
 
     - name: 📤 Upload SBOM
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v5
       with:
         name: sbom
         path: |
@@ -350,7 +350,7 @@ jobs:
         fi
 
     - name: 📤 Upload Provenance
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v5
       with:
         name: provenance
         path: |
@@ -467,7 +467,7 @@ jobs:
 
 
     - name: 📤 Upload SAST reports
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v5
       with:
         name: sast-reports
         path: sast_reports/**
@@ -489,7 +489,7 @@ jobs:
         fi
 
     - name: 📤 Upload APK universal (DAST)
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v5
       with:
         name: dast-universal-apk
         path: dast_artifacts/
@@ -633,7 +633,7 @@ jobs:
         echo "✅ Nenhuma CRITICAL/HIGH detectada."
 
     - name: Upload MobSF reports
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v5
       with:
         name: mobsf
         path: |
