@@ -238,6 +238,8 @@ O app demonstra:
 - Inserir o lint da Very Good Ventures: very_good_analysis
   - https://pub.dev/packages/very_good_analysis
 - Implementar pipeline para **deploy da Play Store** 
+- Pinning por SHA (actions): congela exatamente quais ações de terceiros são usadas no CI/CD 
+- Checksums/assinaturas de ferramentas (cosign/binários/bundletool): garante que os binários baixados no job são os oficiais e não foram trocados em trânsito.
 
 # 📄 Isenção de Responsabilidade
 
@@ -245,6 +247,6 @@ Este projeto é um estudo de caso educacional. Ele demonstra como ferramentas Op
 
 🚧 Este laboratório está em evolução contínua
 
-<div align="center"> <sub>Desenvolvido com 💙 e ☕ por Alexandre Sato - nov/2025</sub> </div>
+<div align="center"> <sub>Desenvolvido com 💙 e ☕ por Alexandre T. Sato - nov/2025</sub> </div>
 
 

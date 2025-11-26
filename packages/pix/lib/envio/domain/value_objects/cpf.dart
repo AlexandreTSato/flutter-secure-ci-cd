@@ -1,5 +1,4 @@
-import 'package:pix/core/errors/failures.dart';
-import 'package:pix/core/results/result.dart';
+import 'package:core_foundation/core_foundation.dart';
 
 class Cpf {
   final String value;

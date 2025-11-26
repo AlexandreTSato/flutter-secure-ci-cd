@@ -24,6 +24,13 @@ updates:
       interval: "weekly"
     target-branch: "develop"
 
+  # [UPD001] Supply-chain: adiciona monitoramento de GitHub Actions para manter
+  # versões atualizadas e facilitar pinning seguro.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+
 # Ativar alertas no repositório GitHub:
 # Settings → Code Security and Analysis
 # Ative:

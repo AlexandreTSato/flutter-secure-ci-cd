@@ -1,5 +1,7 @@
+import 'package:core_foundation/core_foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:pix/core/results/result.dart';
+
+import 'package:pix/envio/domain/models/chave_pix.dart';
 import 'package:pix/envio/domain/usercases/submit_amount.dart';
 import 'package:pix/envio/domain/usercases/submit_cpf.dart';
 
@@ -21,6 +23,9 @@ class PixFlowViewModel extends Notifier<PixFlowState> {
   late final SubmitAmountUseCase _submitAmount;
   late final UiEventNotifier _eventNotifier;
 
+  // Novo: sequência para descartar respostas obsoletas
+  int _opSeq = 0;
+
   @override
   PixFlowState build() {
     _submitCpf = ref.read(submitCpfUseCaseProvider);
@@ -28,6 +33,39 @@ class PixFlowViewModel extends Notifier<PixFlowState> {
     _eventNotifier = ref.read(uiEventNotifierProvider.notifier);
 
     return const PixFlowState.initial();
+  }
+
+  Future<void> _execute<T>({
+    required Future<Result<T>> Function() task,
+    required void Function(T data) onSuccess,
+    bool showLoading = true,
+    PixFlowState Function(T data)? mapToState,
+  }) async {
+    final mySeq = ++_opSeq;
+
+    if (showLoading) {
+      state = const PixFlowState.loading();
+    }
+
+    final result = await task();
+
+    if (mySeq != _opSeq) return;
+
+    switch (result) {
+      case Success<T>(data: final data):
+        onSuccess(data);
+        if (mapToState != null) {
+          state = mapToState(data);
+        }
+        break;
+
+      case ResultFailure<T>(error: final err):
+        _eventNotifier.addEvent(
+          UiEvent.showSnackbar(message: err.toString(), isError: true),
+        );
+        state = PixFlowState.error(err.message);
+        break;
+    }
   }
 
   /// ----------------------------------------------------------------
@@ -52,51 +90,28 @@ class PixFlowViewModel extends Notifier<PixFlowState> {
   /// CPF FLOW
   /// ----------------------------------------------------------------
   Future<void> _onSubmitCpf(String rawCpf) async {
-    state = const PixFlowState.loading();
-
-    final result = await _submitCpf(rawCpf);
-
-    switch (result) {
-      case Success(data: final chave):
-        // Atualiza sessão
+    await _execute<ChavePix>(
+      task: () => _submitCpf(rawCpf),
+      onSuccess: (chave) {
         ref.read(pixSessionProvider.notifier).setChaveEncontrada(chave);
-
-        state = PixFlowState.success(chave);
-        break;
-
-      case Failure(error: final err):
-        _eventNotifier.addEvent(
-          UiEvent.showSnackbar(message: err.toString(), isError: true),
-        );
-
-        state = PixFlowState.error(err.toString());
-        break;
-    }
+      },
+      showLoading: true,
+      mapToState: PixFlowState.success, // publica success(ChavePix)
+    );
   }
 
   /// ----------------------------------------------------------------
   /// AMOUNT FLOW
   /// ----------------------------------------------------------------
   Future<void> _onSubmitAmount(double rawAmount) async {
-    state = const PixFlowState.loading();
-
-    final result = await _submitAmount(rawAmount);
-
-    switch (result) {
-      case Success(data: final chave):
+    await _execute<ChavePix>(
+      task: () => _submitAmount(rawAmount),
+      onSuccess: (_) {
         ref.read(pixSessionProvider.notifier).setValor(rawAmount);
-
-        state = PixFlowState.success(chave);
-        break;
-
-      case Failure(error: final err):
-        _eventNotifier.addEvent(
-          UiEvent.showSnackbar(message: err.toString(), isError: true),
-        );
-
-        state = PixFlowState.error(err.toString());
-        break;
-    }
+      },
+      showLoading: false, // sem flicker se não houver IO pesado
+      mapToState: PixFlowState.success, // teste exige success aqui também
+    );
   }
 
   /// ----------------------------------------------------------------

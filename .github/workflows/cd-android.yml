@@ -167,20 +167,61 @@ jobs:
         sudo mv cosign-linux-amd64 /usr/local/bin/cosign
         cosign version
 
-    - name: 🔏 Assinar AAB com Cosign (OIDC)
+    - name: 🔍 Verificar ofuscação obrigatória (release)
+      shell: bash
       run: |
-        # Assinamos o artefato principal (mantendo exatamente o que você fazia)
-        AAB="${{ env.APP_DIR }}/build/app/outputs/bundle/release/app-release.aab"
-        if [ -f "$AAB" ]; then
-          cosign sign-blob \
-            "$AAB" \
-            --yes \
-            --bundle "${{ env.APP_DIR }}/app-release.bundle.json" \
-            --output-signature "${{ env.APP_DIR }}/app-release.sig"
-          echo "Signed $AAB"
-        else
-          echo "⚠️ AAB esperado não encontrado em $AAB — assinatura ignorada (verifique build)."
+        set -euo pipefail
+        APP_DIR="${{ env.APP_DIR }}/android/app"
+        BUILD_FILE=$(find "$APP_DIR" -type f \( -name "build.gradle" -o -name "build.gradle.kts" \) | head -n1 || true)
+        if [ -z "${BUILD_FILE:-}" ]; then
+          echo "::error:: build.gradle(.kts) não encontrado em $APP_DIR"
+          exit 1
         fi
+
+        # Extrai bloco release para reduzir falsos positivos
+        RELEASE_BLOCK=$(awk '/buildTypes[[:space:]]*{/{flag=1} flag && /release[[:space:]]*{/{depth++} flag && depth>0{print} /\}/{if(depth>0)depth--; if(flag && depth==0){flag=0}}' "$BUILD_FILE")
+
+        # Checa minifyEnabled (Groovy) ou isMinifyEnabled (Kotlin DSL)
+        if echo "$RELEASE_BLOCK" | grep -qE 'minifyEnabled[[:space:]]+true|isMinifyEnabled[[:space:]]*=[[:space:]]*true'; then
+          echo "✅ Ofuscação habilitada em release (minifyEnabled/isMinifyEnabled)."
+        else
+          echo "::error:: Ofuscação R8/ProGuard não habilitada em release. Ative minifyEnabled/isMinifyEnabled."
+          exit 1
+        fi
+
+        # Checa shrinkResources (recomendado)
+        if echo "$RELEASE_BLOCK" | grep -qE 'shrinkResources[[:space:]]+true|isShrinkResources[[:space:]]*=[[:space:]]*true'; then
+          echo "ℹ️ shrinkResources habilitado em release."
+        else
+          echo "::warning:: shrinkResources não habilitado em release. Recomenda-se ativar para reduzir superfície de ataque."
+        fi
+
+        # Alerta se release usa signingConfig debug
+        if echo "$RELEASE_BLOCK" | grep -qi 'signingConfig[[:space:]]*=[[:space:]]*signingConfigs\.getByName\("debug"\)'; then
+          echo "::warning:: release está usando signingConfig=debug. Para produção, use uma upload key dedicada/Play App Signing."
+        fi
+
+    - name: 🔏 Assinar AAB com Cosign (OIDC - sign-blob + bundle)
+      shell: bash
+      env:
+        COSIGN_YES: "true"   # evita prompt "Are you sure you would like to continue? [y/N]"
+        # COSIGN_EXPERIMENTAL: "true"  # somente se sua versão exigir para keyless/oidc (na maioria das versões atuais não é necessário)
+      run: |
+        set -euo pipefail
+        AAB="${{ env.APP_DIR }}/build/app/outputs/bundle/release/app-release.aab"
+        BUNDLE="${{ env.APP_DIR }}/app-release.bundle.json"
+        SIG="${{ env.APP_DIR }}/app-release.sig"
+        if [ ! -f "$AAB" ]; then
+          echo "::error:: AAB esperado não encontrado: $AAB"
+          exit 1
+        fi
+        echo "🔐 Assinando blob $AAB com Cosign (keyless OIDC)..."
+        cosign sign-blob "$AAB" \
+          --bundle "$BUNDLE" \
+          --output-signature "$SIG" \
+          --yes
+        echo "✅ Assinatura gerada: $SIG e bundle: $BUNDLE"
+
 
     - name: 🔍 Verificar assinatura (Cosign verify - keyless)
       run: |

@@ -1,4 +1,9 @@
+# melos_managed_dependency_overrides: core_foundation,core_networking
 # melos_managed_dependency_overrides: shared_ui
 dependency_overrides:
   shared_ui:
-    path: ..\\shared_ui
+    path: ../shared_ui
+  core_foundation:
+    path: ../core_foundation
+  core_networking:
+    path: ../core_networking

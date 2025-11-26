@@ -1,0 +1,4 @@
+# melos_managed_dependency_overrides: core_foundation
+dependency_overrides:
+  core_foundation:
+    path: ..\\core_foundation

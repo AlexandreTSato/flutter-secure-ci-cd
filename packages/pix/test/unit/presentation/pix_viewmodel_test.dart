@@ -1,8 +1,7 @@
+import 'package:core_foundation/core_foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
-import 'package:pix/core/errors/failures.dart';
-import 'package:pix/core/results/result.dart';
 import 'package:pix/envio/domain/models/chave_pix.dart';
 import 'package:pix/envio/domain/usercases/submit_amount.dart';
 import 'package:pix/envio/domain/usercases/submit_cpf.dart';

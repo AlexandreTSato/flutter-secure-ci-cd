@@ -4,20 +4,34 @@ import '../dto/pix_key_dto.dart';
 
 class PixRemoteDataSource implements PixRemoteDataSourceContract {
   final Dio _dio;
-
-  PixRemoteDataSource(this._dio);
+  PixRemoteDataSource({required Dio dio}) : _dio = dio;
 
   @override
   Future<PixKeyDto> fetchKey(String userId) async {
-    //final response = await _dio.get('/users/$userId');
-    final response = await _dio.get('/users/1');
-    return PixKeyDto.fromJson(response.data);
+    // Exemplo: GET /users/{id}/pix-key
+    final resp = await _dio.get(
+      '/users/1',
+      // '/users/$userId',
+      queryParameters: {'include': 'metadata'},
+    );
+    final data = resp.data;
+    if (data is Map<String, dynamic>) {
+      return PixKeyDto.fromJson(data);
+    }
+    throw const FormatException('Unexpected response format (fetchKey)');
   }
 
   @override
   Future<PixKeyDto> fetchAmount(double newAmount) async {
-    //final response = await _dio.get('/users/$newCpf');
-    final response = await _dio.get('/users/1');
-    return PixKeyDto.fromJson(response.data);
+    // Exemplo: GET /pix/preview?amount=123.45
+    final resp = await _dio.get(
+      '/users/1',
+      queryParameters: {'amount': newAmount},
+    );
+    final data = resp.data;
+    if (data is Map<String, dynamic>) {
+      return PixKeyDto.fromJson(data);
+    }
+    throw const FormatException('Unexpected response format (fetchAmount)');
   }
 }

@@ -10,6 +10,11 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+  pull-requests: write
+  actions: read
+
 jobs:
   # ============================================================
   # 1) SETUP — prepara runner, cache, melos, codegen (se houver)
@@ -29,6 +34,15 @@ jobs:
           fetch-depth: 0
           submodules: recursive
           lfs: true
+
+      - name: ✅ Validar paths locais em pubspecs
+        run: |
+          BAD=$(grep -R '\\\\' -n --include=pubspec.yaml || true)
+          if [ -n "$BAD" ]; then
+            echo "❌ Encontrados paths com barra invertida em pubspec.yaml:"
+            echo "$BAD"
+            exit 1
+          fi
 
       - name: Garantir fetch das tags
         run: git fetch --tags
@@ -93,6 +107,11 @@ jobs:
           fi
           # melos já instalado no setup-env
           melos list || true
+
+      - name: 🧹 Limpar .dart_tool e overrides antigos
+        run: |
+          rm -rf .dart_tool || true
+          find . -name "pubspec_overrides.yaml" -print -exec sed -i 's|\\\\|/|g' {} \;
 
       - name: 📦 melos bootstrap (gera links e .dart_tool corretos)
         run: melos bootstrap
@@ -222,9 +241,11 @@ jobs:
       # ======================================================
       - name: 🔧 Instalar jq/yq
         run: |
-          sudo apt-get update
-          sudo apt-get install -y jq
-          sudo snap install yq
+          sudo apt-get update -y
+          sudo apt-get install -y jq curl
+          YQ_VERSION=v4.44.3
+          curl -sSL https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64 -o /usr/local/bin/yq
+          chmod +x /usr/local/bin/yq
 
       - name: 🔍 Localizar pubspec.lock
         run: |
@@ -336,3 +357,29 @@ jobs:
             echo "- Actor: ${{ github.actor }}"
             echo "- Workflow: ${{ github.workflow }}"
           } >> $GITHUB_STEP_SUMMARY
+      - name: 🔍 Verificar alertas Dependabot (SCA)
+        id: dependabot
+        env:
+          GH_TOKEN: ${{ secrets.GH_DEPENDABOT_TOKEN }}
+        continue-on-error: true
+        run: |
+          if [ -z "${GH_TOKEN}" ]; then
+            export GH_TOKEN="${{ secrets.GITHUB_TOKEN }}"
+          fi
+          gh auth status || gh auth setup-git
+          gh api /repos/${{ github.repository }}/dependabot/alerts --paginate > dependabot-alerts.json || echo "[]"
+          COUNT=$(jq '[.[] | select(.severity=="HIGH" or .severity=="CRITICAL")] | length' dependabot-alerts.json)
+          if [ "$COUNT" -gt 0 ]; then
+            echo "❌ Dependabot encontrou $COUNT vulnerabilidades CRITICAL/HIGH"
+            exit 1
+          else
+            echo "✔ Nenhuma vulnerabilidade crítica/alta encontrada pelo Dependabot"
+          fi
+
+      - name: 📂 Upload Dependabot Alerts (artefato)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependabot-alerts
+          path: dependabot-alerts.json
+          retention-days: 2

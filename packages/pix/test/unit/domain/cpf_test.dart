@@ -1,7 +1,6 @@
+import 'package:core_foundation/core_foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:pix/core/results/result.dart';
 import 'package:pix/envio/domain/value_objects/cpf.dart';
-import 'package:pix/core/errors/failures.dart' hide Failure;
 
 void main() {
   group('Cpf Value Object', () {
@@ -24,10 +23,10 @@ void main() {
       final Result<Cpf> result = Cpf.create('123.456.789-00');
 
       // assert: é uma instância da subclasse Failure<T>
-      expect(result, isA<Failure<Cpf>>());
+      expect(result, isA<ResultFailure<Cpf>>());
 
       // cast seguro para acessar o erro de domínio
-      final failure = result as Failure<Cpf>;
+      final failure = result as ResultFailure<Cpf>;
 
       // supondo que Failure tenha uma propriedade `error` do tipo FailureInfo/Failure
       expect(failure.error, isA<ValidationFailure>());

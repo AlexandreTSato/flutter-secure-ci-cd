@@ -1,4 +1,4 @@
-import 'package:pix/core/results/result.dart';
+import 'package:core_foundation/core_foundation.dart';
 import 'package:pix/envio/domain/contracts/pix_repository_contract.dart';
 import 'package:pix/envio/domain/models/chave_pix.dart';
 import 'package:pix/envio/domain/value_objects/cpf.dart';
@@ -13,8 +13,7 @@ class SubmitCpfUseCase {
 
     return switch (cpfResult) {
       Success(data: final cpf) => repository.fetchKey(cpf),
-
-      Failure(error: final err) => Result.failure(err),
+      ResultFailure(error: final err) => Result.failure(err),
     };
   }
 }

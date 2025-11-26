@@ -1,83 +1,69 @@
-import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
 import 'package:pix/envio/data/datasources/pix_remote_datasource.dart';
 import 'package:pix/envio/data/services/pix_repository.dart';
 import 'package:pix/envio/domain/contracts/pix_repository_contract.dart';
 import 'package:pix/envio/data/datasources/pix_repository_datasource_contract.dart';
 import 'package:pix/envio/domain/usercases/submit_amount.dart';
 import 'package:pix/envio/domain/usercases/submit_cpf.dart';
+
 import 'package:pix/envio/presentation/events/ui_event.dart';
 import 'package:pix/envio/presentation/events/ui_event_notifier.dart';
+
 import 'package:pix/envio/presentation/state/pix_flow_state.dart';
 import 'package:pix/envio/presentation/viewmodels/pix_flow_view_model.dart';
+import 'package:core_networking/core_networking.dart';
 
-/// Provider global do Dio configurado com interceptors
-final dioProvider = Provider<Dio>((ref) {
-  final dio = Dio(
-    BaseOptions(
-      baseUrl: 'https://jsonplaceholder.typicode.com',
-      connectTimeout: const Duration(seconds: 5),
-      receiveTimeout: const Duration(seconds: 5),
-    ),
-  );
+// ------------------------------------------------------------
+// Networking (usa dioProvider do core_networking)
+// ------------------------------------------------------------
 
-  dio.interceptors.addAll([
-    LogInterceptor(responseBody: true, requestBody: true),
-    InterceptorsWrapper(
-      onRequest: (options, handler) {
-        // Exemplo de cabeçalhos comuns
-        options.headers['Content-Type'] = 'application/json';
-        return handler.next(options);
-      },
-      onError: (e, handler) {
-        // Log customizado de erros
-        //print('Erro na requisição PIX: ${e.message}');
-        return handler.next(e);
-      },
-    ),
-  ]);
-
-  return dio;
-});
-
-/// Provider do DataSource remoto (injeção de Dio)
+/// DataSource remoto (injeção do Dio configurado no core_networking)
 final pixRemoteDataSourceProvider = Provider<PixRemoteDataSourceContract>((
   ref,
 ) {
-  final dio = ref.watch(dioProvider);
-  return PixRemoteDataSource(dio);
+  final dio = ref.read(dioProvider); // vem de core_networking
+  return PixRemoteDataSource(dio: dio);
 });
 
-/// Provider do Repository (injeção de DataSource)
+/// Repository (usa DataSource)
 final pixRepositoryProvider = Provider<PixRepositoryContract>((ref) {
-  final remoteDataSource = ref.watch(pixRemoteDataSourceProvider);
+  final remoteDataSource = ref.read(pixRemoteDataSourceProvider);
   return PixRepository(remoteDataSource);
 });
 
-/// ✅ ViewModel Provider — forma correta e definitiva
+// ------------------------------------------------------------
+// ViewModel (fluxo transacional) - autoDispose recomendado
+// ------------------------------------------------------------
 final pixFlowViewModelProvider =
-    NotifierProvider<PixFlowViewModel, PixFlowState>(PixFlowViewModel.new);
+    NotifierProvider.autoDispose<PixFlowViewModel, PixFlowState>(
+      PixFlowViewModel.new,
+    );
 
-/// Provider do UseCase SubmitCpf
+// ------------------------------------------------------------
+// UseCases
+// ------------------------------------------------------------
 final submitCpfUseCaseProvider = Provider<SubmitCpfUseCase>((ref) {
-  final repository = ref.watch(pixRepositoryProvider);
+  final repository = ref.read(pixRepositoryProvider);
   return SubmitCpfUseCase(repository);
 });
 
-/// Provider do UseCase SubmitCpf
 final submitAmountUseCaseProvider = Provider<SubmitAmountUseCase>((ref) {
-  final repository = ref.watch(pixRepositoryProvider);
+  final repository = ref.read(pixRepositoryProvider);
   return SubmitAmountUseCase(repository);
 });
 
-// 4. Provider do Notifier (para que outros possam acessá-lo) - ordem é relevante
+// ------------------------------------------------------------
+// Eventos de UI (one-shot)
+// ------------------------------------------------------------
+/// Notifier que emite eventos (Snackbar, navegação, etc.)
 final uiEventNotifierProvider = NotifierProvider<UiEventNotifier, void>(
-  () => UiEventNotifier(),
+  UiEventNotifier.new,
 );
 
-//autodispose mantem os eventos? - ordem é relevante
+/// Stream de eventos (autoDispose conserva até fim do frame; ref.keepAlive opcional)
 final uiEventStreamProvider = StreamProvider.autoDispose<UiEvent>((ref) {
-  final _ = ref.keepAlive(); //👈 evita destruir no meio do frame
-
+  // Se quiser manter ativa enquanto navega entre telas, descomente:
+  // ref.keepAlive();
   return ref.watch(uiEventNotifierProvider.notifier).events;
 });

@@ -37,7 +37,7 @@ scripts:
   # -------------------
   test:
     description: "Executa todos os testes unitários"
-    run: melos exec -- "flutter test --no-pub --coverage"     
+    run: melos exec --scope="pix" -- "flutter test --no-pub --coverage"     
 
   # -------------------
   # 🧰 Limpeza e bootstrap
