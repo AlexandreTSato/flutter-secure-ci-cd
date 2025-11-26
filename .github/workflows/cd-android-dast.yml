@@ -51,7 +51,7 @@ jobs:
 
     steps:
       - name: ⬇️ Checkout do Código
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         
       - name: ⚙️ Definir Parâmetros (Lógica Condicional e Foco no Teste)
         id: params

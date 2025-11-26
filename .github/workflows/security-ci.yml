@@ -34,7 +34,7 @@ jobs:
       # 1) CHECKOUT
       # ---------------------------------------------------------------------------
       - name: ⬇️ Checkout código fonte
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           # Obs: shallow clone é aceitável aqui (1 commit)
           fetch-depth: 1
